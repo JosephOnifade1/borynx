@@ -23,25 +23,43 @@ export function Dialog({ open, onClose, title, description, children, className,
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descId = useId();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const initialFocusTargetRef = useRef(initialFocusRef);
+  initialFocusTargetRef.current = initialFocusRef;
+
+  const hasFocusedRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      hasFocusedRef.current = false;
+      return;
+    }
+
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    const focusTarget = initialFocusRef?.current ?? panel?.querySelector<HTMLElement>(FOCUSABLE) ?? panel;
-    window.requestAnimationFrame(() => focusTarget?.focus());
+    // ONLY perform initial focus once when opening, NEVER on re-renders while typing
+    if (!hasFocusedRef.current) {
+      hasFocusedRef.current = true;
+      window.requestAnimationFrame(() => {
+        const target = initialFocusTargetRef.current?.current ?? panel?.querySelector<HTMLElement>(FOCUSABLE) ?? panel;
+        target?.focus();
+      });
+    }
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key === "Tab" && panel) {
-        const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.offsetParent !== null);
+        const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+          (n) => n.offsetParent !== null && !n.hasAttribute("disabled"),
+        );
         if (nodes.length === 0) return;
         const first = nodes[0];
         const last = nodes[nodes.length - 1];
@@ -60,13 +78,13 @@ export function Dialog({ open, onClose, title, description, children, className,
       document.body.style.overflow = prevOverflow;
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose, initialFocusRef]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center px-4 pt-[12vh]" role="presentation">
-      <div className="absolute inset-0 bg-[color-mix(in_oklab,var(--ink)_45%,transparent)] backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 overflow-y-auto" role="presentation">
+      <div className="fixed inset-0 bg-[color-mix(in_oklab,var(--ink)_55%,transparent)] backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
         role="dialog"
@@ -74,10 +92,10 @@ export function Dialog({ open, onClose, title, description, children, className,
         aria-labelledby={title ? titleId : undefined}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className={cn("panel-raised relative w-full max-w-lg rounded-lg outline-none", className)}
+        className={cn("panel-raised relative flex flex-col w-full max-w-lg max-h-[92vh] rounded-lg shadow-2xl outline-none my-auto overflow-hidden", className)}
       >
         {!bare && (
-          <header className="hairline-b flex items-start justify-between gap-4 px-5 py-4">
+          <header className="hairline-b flex items-start justify-between gap-4 px-5 py-3.5 shrink-0">
             <div>
               {title && (
                 <h2 id={titleId} className="display text-[17px]">
@@ -90,7 +108,7 @@ export function Dialog({ open, onClose, title, description, children, className,
                 </p>
               )}
             </div>
-            <button type="button" onClick={onClose} className="btn btn-ghost btn-sm -mr-2" aria-label="Close dialog">
+            <button type="button" onClick={onClose} className="btn btn-ghost btn-sm -mr-2 text-ink-3 hover:text-ink" aria-label="Close dialog">
               <X size={15} />
             </button>
           </header>
