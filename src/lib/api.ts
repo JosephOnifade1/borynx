@@ -1,0 +1,55 @@
+import { NextRequest } from "next/server";
+import { ensureDatabase } from "@/db/bootstrap";
+import { errorResponse, HttpError } from "./auth";
+
+type Params = Record<string, string>;
+type Handler = (req: NextRequest, ctx: { params: Params }) => Promise<Response>;
+
+/**
+ * Wraps a route handler: waits for the database bootstrap (memoised, instant after boot), maps
+ * errors uniformly, and resolves Next 16's async params.
+ */
+export function handler(fn: Handler) {
+  return async (req: NextRequest, ctx: { params: Promise<Params> }): Promise<Response> => {
+    try {
+      const status = await ensureDatabase();
+      if (!status.ok) {
+        return Response.json(
+          { error: `Database unavailable during ${status.stage}: ${status.error ?? "unknown error"}`, code: "db_unavailable" },
+          { status: 503, headers: { "Retry-After": "5" } },
+        );
+      }
+      const params = await ctx.params;
+      return await fn(req, { params });
+    } catch (err) {
+      return errorResponse(err);
+    }
+  };
+}
+
+export async function readJson<T extends Record<string, unknown>>(req: NextRequest): Promise<T> {
+  try {
+    return (await req.json()) as T;
+  } catch {
+    throw new HttpError(400, "Invalid JSON body", "bad_request");
+  }
+}
+
+export function num(value: string | undefined | null, name: string = "id"): number {
+  const n = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(n)) throw new HttpError(400, `Invalid ${name}`, "bad_request");
+  return n;
+}
+
+export function str(value: unknown, name: string, { min = 1, max = 10_000 }: { min?: number; max?: number } = {}): string {
+  if (typeof value !== "string") throw new HttpError(400, `${name} is required`, "bad_request");
+  const v = value.trim();
+  if (v.length < min) throw new HttpError(400, `${name} is too short`, "bad_request");
+  if (v.length > max) throw new HttpError(400, `${name} is too long (max ${max})`, "bad_request");
+  return v;
+}
+
+export function oneOf<T extends string>(value: unknown, allowed: readonly T[], name: string): T {
+  if (typeof value === "string" && (allowed as readonly string[]).includes(value)) return value as T;
+  throw new HttpError(400, `${name} must be one of ${allowed.join(", ")}`, "bad_request");
+}
