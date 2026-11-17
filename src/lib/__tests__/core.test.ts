@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { hotScore, rankItems, wilsonLowerBound, topScore } from "../sorting";
 import { tokenizeInline, parseBlocks, extractUserMentions, extractSpaceMentions } from "../autolink";
@@ -86,6 +87,38 @@ describe("autolink tokenizer", () => {
   it("parses block structure", () => {
     const blocks = parseBlocks("# Title\n\n- one\n- two\n\n```ts\nconst a = 1\n```\n> quoted");
     expect(blocks.map((b) => b.type)).toEqual(["heading", "list", "codeblock", "quote"]);
+  });
+});
+
+describe("markdown block parser — forward progress", () => {
+  function parseWithinLimit(markdown: string): ReturnType<typeof parseBlocks> {
+    // A synchronous parser loop would block the test runner's normal timeout.
+    return runInNewContext("parseBlocks(markdown)", { parseBlocks, markdown }, { timeout: 250 });
+  }
+
+  it("renders fenced code with a language label like c++", () => {
+    const blocks = parseWithinLimit("Example:\n``` c++\nint main() { return 0; }\n```\nDone.");
+    expect(blocks).toEqual([
+      { type: "paragraph", inline: [{ type: "text", value: "Example:" }] },
+      { type: "codeblock", lang: "c++", code: "int main() { return 0; }" },
+      { type: "paragraph", inline: [{ type: "text", value: "Done." }] },
+    ]);
+  });
+
+  it("keeps shorter backtick fences inside a longer code block", () => {
+    const code = "```ts\nconst a = 1\n```";
+    const blocks = parseWithinLimit(`\`\`\`\`markdown\n${code}\n\`\`\`\`\n# After`);
+    expect(blocks).toEqual([
+      { type: "codeblock", lang: "markdown", code },
+      { type: "heading", level: 1, inline: [{ type: "text", value: "After" }] },
+    ]);
+  });
+
+  it.each(["# ", "##\t ", "- ", "* ", "1. "])("renders an unfinished marker as text (%j)", (marker) => {
+    expect(parseWithinLimit(`${marker}\n# After`)).toEqual([
+      { type: "paragraph", inline: [{ type: "text", value: marker }] },
+      { type: "heading", level: 1, inline: [{ type: "text", value: "After" }] },
+    ]);
   });
 });
 
