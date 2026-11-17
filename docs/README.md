@@ -26,6 +26,12 @@ This directory contains architectural specifications, implementation blueprints,
 
 ---
 
+## Proposed Roadmap
+
+- [Phase-by-phase marketplace implementation plan](./RECOMMENDATIONS_IMPLEMENTATION_PLAN.md) — Development-first phases with schema, API contracts, UI, security, and acceptance checks for review.
+
+---
+
 ## 🏗️ Technical Stack Summary
 - **Framework:** Next.js 16.2.6 (App Router + Turbopack)
 - **Runtime:** React 19.2.6
