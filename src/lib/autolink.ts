@@ -173,6 +173,16 @@ export type Block =
   | { type: "list"; ordered: boolean; items: InlineToken[][] }
   | { type: "rule" };
 
+const CODE_FENCE = /^(`{3,})([^`]*)$/;
+const HEADING = /^(#{1,3})\s+(\S.*)$/;
+const RULE = /^(?:-{3,}|\*{3,})\s*$/;
+const QUOTE = /^>\s?/;
+const LIST_ITEM = /^\s*([-*]|\d+\.)\s+(\S.*)$/;
+
+function startsBlock(line: string): boolean {
+  return CODE_FENCE.test(line) || HEADING.test(line) || RULE.test(line) || QUOTE.test(line) || LIST_ITEM.test(line);
+}
+
 export function parseBlocks(markdown: string): Block[] {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const blocks: Block[] = [];
@@ -183,53 +193,60 @@ export function parseBlocks(markdown: string): Block[] {
       i++;
       continue;
     }
-    const fence = /^```(\w*)\s*$/.exec(line);
+    const fence = CODE_FENCE.exec(line);
     if (fence) {
+      const lang = fence[2].trim().split(/\s+/, 1)[0];
       const code: string[] = [];
       i++;
-      while (i < lines.length && !/^```\s*$/.test(lines[i])) {
+      while (i < lines.length) {
+        const close = CODE_FENCE.exec(lines[i]);
+        if (close && close[1].length >= fence[1].length && !close[2].trim()) {
+          i++;
+          break;
+        }
         code.push(lines[i]);
         i++;
       }
-      i++;
-      blocks.push({ type: "codeblock", lang: fence[1], code: code.join("\n") });
+      blocks.push({ type: "codeblock", lang, code: code.join("\n") });
       continue;
     }
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    const heading = HEADING.exec(line);
     if (heading) {
       blocks.push({ type: "heading", level: heading[1].length as 1 | 2 | 3, inline: tokenizeInline(heading[2]) });
       i++;
       continue;
     }
-    if (/^(-{3,}|\*{3,})\s*$/.test(line)) {
+    if (RULE.test(line)) {
       blocks.push({ type: "rule" });
       i++;
       continue;
     }
-    if (/^>\s?/.test(line)) {
+    if (QUOTE.test(line)) {
       const quote: string[] = [];
-      while (i < lines.length && /^>\s?/.test(lines[i])) {
-        quote.push(lines[i].replace(/^>\s?/, ""));
+      while (i < lines.length && QUOTE.test(lines[i])) {
+        quote.push(lines[i].replace(QUOTE, ""));
         i++;
       }
       blocks.push({ type: "quote", inline: tokenizeInline(quote.join(" ")) });
       continue;
     }
-    const listMatch = /^(\s*)([-*]|\d+\.)\s+(.+)$/.exec(line);
+    const listMatch = LIST_ITEM.exec(line);
     if (listMatch) {
-      const ordered = /\d+\./.test(listMatch[2]);
+      const ordered = /\d+\./.test(listMatch[1]);
       const items: InlineToken[][] = [];
       while (i < lines.length) {
-        const m = /^(\s*)([-*]|\d+\.)\s+(.+)$/.exec(lines[i]);
+        const m = LIST_ITEM.exec(lines[i]);
         if (!m) break;
-        items.push(tokenizeInline(m[3]));
+        items.push(tokenizeInline(m[2]));
         i++;
       }
       blocks.push({ type: "list", ordered, items });
       continue;
     }
-    const para: string[] = [];
-    while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,3}\s|```|>\s?|(\s*)([-*]|\d+\.)\s)/.test(lines[i])) {
+    // Always consume the current line, including unfinished block syntax in a draft.
+    const para = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() !== "" && !startsBlock(lines[i])) {
       para.push(lines[i]);
       i++;
     }
