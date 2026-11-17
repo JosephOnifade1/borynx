@@ -63,34 +63,45 @@ export function Header() {
       </div>
 
       <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
-        <button type="button" onClick={() => setPaletteOpen(true)} className="btn btn-ghost h-8 gap-2 pr-2 text-ink-3" aria-label="Open command palette" aria-keyshortcuts="Meta+K Control+K">
-          <Search size={15} />
+        <button
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          className="btn btn-ghost h-9 gap-2 px-2.5 text-ink-3 hover:text-ink"
+          aria-label="Open command palette"
+          aria-keyshortcuts="Meta+K Control+K"
+        >
+          <Search size={16} />
           <span className="hidden text-[12.5px] sm:inline">Jump to…</span>
           <kbd className="num hidden rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-ink-3 sm:inline">⌘K</kbd>
         </button>
 
-        <button type="button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="btn btn-ghost h-8 w-8 justify-center px-0" aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
-          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+        <button
+          type="button"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          className="btn btn-ghost h-9 w-9 justify-center rounded-md p-0 text-ink-2 hover:text-ink hover:bg-bg-sunken transition-colors"
+          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {theme === "dark" ? <Sun size={19} strokeWidth={2.1} className="text-amber-500 dark:text-amber-400" /> : <Moon size={19} strokeWidth={2.1} />}
         </button>
 
         {user ? (
           <>
             <NotificationBell />
-            <Link href={routes.leadNew()} className="btn btn-primary h-8 hidden sm:inline-flex">
-              <Plus size={14} /> Post lead
+            <Link href={routes.leadNew()} className="btn btn-primary h-9 hidden sm:inline-flex items-center gap-1.5 px-3 text-[13px]">
+              <Plus size={15} strokeWidth={2.2} /> Post lead
             </Link>
             <div className="relative" ref={menuRef}>
               <button
                 type="button"
                 onClick={() => setMenuOpen((o) => !o)}
-                className="flex h-8 items-center gap-2 rounded-md border border-transparent pl-1 pr-2 hover:border-line"
+                className="flex h-9 items-center gap-2 rounded-md border border-transparent pl-1 pr-2.5 hover:border-line hover:bg-bg-sunken/60 transition-colors"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 aria-label="Account menu"
               >
-                <Avatar hue={user.avatarHue} name={user.displayName} size={24} />
+                <Avatar hue={user.avatarHue} name={user.displayName} size={26} />
                 <span className="hidden text-[12.5px] font-medium md:inline">{user.username}</span>
-                {user.isVerified && <VerifiedMark size={13} />}
+                {user.isVerified && <VerifiedMark size={14} />}
               </button>
               {menuOpen && (
                 <div role="menu" className="panel-raised absolute right-0 mt-1.5 w-56 rounded-md p-1">
@@ -115,7 +126,7 @@ export function Header() {
             </div>
           </>
         ) : (
-          <Link href={routes.login()} className="btn btn-primary h-8">
+          <Link href={routes.login()} className="btn btn-primary h-9 px-3 text-[13px]">
             Sign in
           </Link>
         )}
