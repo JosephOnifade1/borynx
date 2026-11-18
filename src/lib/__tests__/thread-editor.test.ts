@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 import { describe, expect, it } from "vitest";
 import { markdownUrlTransform, normalizeContentHref, remarkBorynxLinks } from "../markdown";
 import { serializeThreadBody, threadEditorExtensions } from "../thread-editor";
+import { parseThreadBody } from "../thread-editor-content";
 import { threadPreview } from "../thread-preview";
 
 function saveMarkdown(content: JSONContent[]) {
@@ -137,5 +138,44 @@ describe("Borynx Markdown links", () => {
   it.each(["//example.com/path", "/.//example.com/path", "https://", "mailto:team@example.com", "ftp://example.com/a", "https://example.com/has space"])("rejects a destination outside the link policy (%s)", (href) => {
     expect(normalizeContentHref(href)).toBeNull();
     expect(markdownUrlTransform(href)).toBe("");
+  });
+});
+
+describe("opening saved Markdown for editing", () => {
+  it("round trips older headings, named links, lists, breaks, quotes, Borynx refs, and indented fenced code", () => {
+    const source = [
+      "#### Existing instructions",
+      "",
+      "Use [**the guide**][guide] or ask u/Devrim in c/devops-cloud.  ",
+      "Review `x = 1` first.",
+      "",
+      '[guide]: <https://example.com/docs(v2)?a=1&b=2> "Read & save"',
+      "",
+      "3. First item",
+      "   - Nested item",
+      "4. Second item",
+      "",
+      "> A useful quote",
+      "",
+      "````c++",
+      "  int x = 1;",
+      "```",
+      "  int y = 2;",
+      "````",
+    ].join("\n");
+    const content = parseThreadBody(source);
+    const saved = saveMarkdown(content.content ?? []);
+    expect(readMarkdown(saved)).toBe(readMarkdown(source));
+  });
+
+  it("keeps loose lists, linked inline code, and marks across hard breaks", () => {
+    const source = "- **Use `--flag` before  \n  continuing.**\n\n- See [`--help`](https://example.com/flags).";
+    expect(readMarkdown(saveMarkdown(parseThreadBody(source).content ?? []))).toBe(readMarkdown(source));
+  });
+
+  it("keeps text but does not insert raw HTML, remote images, or unsupported links in the editor", () => {
+    const content = parseThreadBody('A <em>saved</em> [label](mailto:test@example.com).\n\n![image](https://example.com/image.png)');
+    expect(content.content?.[0]).toMatchObject({ type: "paragraph" });
+    expect(readMarkdown(saveMarkdown(content.content ?? []))).toBe("<p>A saved label.</p>");
   });
 });

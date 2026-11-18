@@ -1,19 +1,21 @@
 import { and, eq } from "drizzle-orm";
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/db";
 import { saves, votes } from "@/db/schema";
 import { SaveButton, ShareButton, VoteRail } from "@/components/feed/controls";
+import { PostActions } from "@/components/post/PostActions";
 import { ThreadBody } from "@/components/post/ThreadBody";
 import { PageFrame, Widget } from "@/components/PageFrame";
 import { CommentThread } from "@/components/post/CommentThread";
 import { Avatar, RegionErrorBoundary, VerifiedMark } from "@/components/primitives";
 import { ReportButton } from "@/components/shell/ReportModal";
 import { UserHoverCard } from "@/components/UserHoverCard";
-import { canModerateSpace, getCurrentUser } from "@/lib/auth";
+import { canModerateSpace, getCurrentUser, isSuspended } from "@/lib/auth";
 import { POST_KIND_LABEL } from "@/lib/constants";
+import { parsePostId } from "@/lib/post-access";
 import { getPostById, listComments } from "@/lib/queries";
 import { routes, timeAgo } from "@/lib/utils";
 
@@ -22,49 +24,79 @@ type Params = Promise<{ slug: string; postId: string; rest?: string[] }>;
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   try {
     const { postId } = await params;
-    const id = Number.parseInt(postId, 10);
-    const row = Number.isFinite(id) ? await getPostById(id) : null;
-    return { title: row ? row.post.title : "Thread" };
+    const id = parsePostId(postId);
+    const row = id !== null ? await getPostById(id, await getCurrentUser()) : null;
+    if (!row || row.post.isRemoved || row.post.authorDeletedAt) {
+      return { title: row?.post.authorDeletedAt ? "Deleted post" : "Thread", robots: { index: false, follow: false } };
+    }
+    return { title: row.post.title };
   } catch {
-    return { title: "Thread" };
+    return { title: "Thread", robots: { index: false, follow: false } };
   }
 }
 
 /**
  * Canonical permalink: /b/:space/p/:id/:slug
- * Any mismatch in space or slug (renamed space, edited title, legacy alias) 308s to the canonical form.
+ * Live threads retain their original slug after edits. Deleted threads use a neutral slug.
  */
 export default async function PostPage({ params }: { params: Params }) {
   const { slug, postId, rest } = await params;
-  const id = Number.parseInt(postId, 10);
-  if (!Number.isFinite(id)) notFound();
-  const row = await getPostById(id);
+  const id = parsePostId(postId);
+  if (id === null) notFound();
+  const user = await getCurrentUser();
+  const row = await getPostById(id, user);
   if (!row) notFound();
   const { post, author, space } = row;
   const canonical = routes.post(space.slug, post.id, post.slug);
-  if (slug !== space.slug || (rest?.[0] ?? "") !== post.slug || (rest?.length ?? 0) > 1) permanentRedirect(canonical);
-
-  const user = await getCurrentUser();
-  const [vote, saved, canMod, initialComments] = await Promise.all([
-    user ? db.select({ value: votes.value }).from(votes).where(and(eq(votes.userId, user.id), eq(votes.targetType, "post"), eq(votes.targetId, post.id))).limit(1) : Promise.resolve([]),
-    user ? db.select().from(saves).where(and(eq(saves.userId, user.id), eq(saves.postId, post.id))).limit(1) : Promise.resolve([]),
-    user ? canModerateSpace(user, space.id) : Promise.resolve(false),
-    listComments(post.id, user?.id ?? null),
-  ]);
-
+  const canMod = user ? await canModerateSpace(user, space.id) : false;
+  const ownsPost = user?.id === post.authorId;
+  const canEdit = Boolean(ownsPost && user && !isSuspended(user) && !post.isRemoved && !post.authorDeletedAt);
+  const isCanonical = slug === space.slug && (rest?.[0] ?? "") === post.slug && (rest?.length ?? 0) <= 1;
+  if (post.authorDeletedAt && !isCanonical) redirect(canonical);
   if (post.isRemoved && !canMod) {
     return (
       <PageFrame>
         <div className="px-6 py-16 text-center">
           <p className="eyebrow text-danger">Removed</p>
           <p className="display mt-2 text-[18px]">This thread was removed by a moderator.</p>
-          <Link href={routes.space(space.slug)} className="btn mt-4">
-            Back to b/{space.slug}
-          </Link>
+          <div className="mt-4 flex justify-center gap-2">
+            <Link href={routes.space(space.slug)} className="btn">Back to b/{space.slug}</Link>
+            {ownsPost && !post.authorDeletedAt && <PostActions postId={post.id} canEdit={false} />}
+          </div>
         </div>
       </PageFrame>
     );
   }
+
+  if (!isCanonical) permanentRedirect(canonical);
+
+  if (post.authorDeletedAt) {
+    const previousReplies = await listComments(post.id, user?.id ?? null);
+    return (
+      <PageFrame>
+        <div className="px-5 py-10 sm:px-6">
+          <p className="eyebrow">Deleted post</p>
+          <h1 className="display mt-2 text-[20px]">This post was deleted by its author.</h1>
+          <p className="mt-2 text-[13px] text-ink-3">New replies are closed.</p>
+          <Link href={routes.space(space.slug)} className="btn mt-4">Back to b/{space.slug}</Link>
+        </div>
+        {previousReplies.length > 0 && (
+          <div className="border-t border-line">
+            <RegionErrorBoundary region="comments">
+              <CommentThread postId={post.id} postAuthorId={null} postHref={canonical} spaceId={space.id} canModerate={false} initialCount={previousReplies.length} initialComments={previousReplies} locked />
+            </RegionErrorBoundary>
+          </div>
+        )}
+      </PageFrame>
+    );
+  }
+
+  const [vote, saved, initialComments] = await Promise.all([
+    user ? db.select({ value: votes.value }).from(votes).where(and(eq(votes.userId, user.id), eq(votes.targetType, "post"), eq(votes.targetId, post.id))).limit(1) : Promise.resolve([]),
+    user ? db.select().from(saves).where(and(eq(saves.userId, user.id), eq(saves.postId, post.id))).limit(1) : Promise.resolve([]),
+    listComments(post.id, user?.id ?? null),
+  ]);
+  const editTime = post.editedAt ? timeAgo(post.editedAt) : null;
 
   return (
     <PageFrame
@@ -117,6 +149,11 @@ export default async function PostPage({ params }: { params: Params }) {
           <time className="num" dateTime={post.createdAt.toISOString()}>
             {timeAgo(post.createdAt)} ago
           </time>
+          {post.editedAt && (
+            <time className="num" dateTime={post.editedAt.toISOString()} title={post.editedAt.toISOString()}>
+              Edited {editTime === "now" ? "just now" : `${editTime} ago`}
+            </time>
+          )}
           <span className="tag ml-1">{POST_KIND_LABEL[post.kind]}</span>
           {post.isSolved && (
             <span className="inline-flex items-center gap-1 text-success">
@@ -124,7 +161,10 @@ export default async function PostPage({ params }: { params: Params }) {
             </span>
           )}
         </div>
-        <h1 className="display mt-2 text-[24px] sm:text-[28px]">{post.title}</h1>
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <h1 className="display min-w-0 break-words text-[24px] sm:text-[28px]">{post.title}</h1>
+          {ownsPost && <PostActions postId={post.id} canEdit={canEdit} />}
+        </div>
         <div className="mt-5 flex gap-4">
           <div className="hidden sm:block">
             <VoteRail targetType="post" id={post.id} upvotes={post.upvotes} downvotes={post.downvotes} userVote={vote[0]?.value ?? 0} />
@@ -144,7 +184,7 @@ export default async function PostPage({ params }: { params: Params }) {
       </article>
       <div className="border-t border-line">
         <RegionErrorBoundary region="comments">
-          <CommentThread postId={post.id} postAuthorId={post.authorId} postHref={canonical} spaceId={space.id} canModerate={canMod} initialCount={post.commentCount} initialComments={initialComments} />
+          <CommentThread postId={post.id} postAuthorId={post.authorId} postHref={canonical} spaceId={space.id} canModerate={canMod} locked={post.isRemoved} initialCount={post.commentCount} initialComments={initialComments} />
         </RegionErrorBoundary>
       </div>
     </PageFrame>

@@ -1,19 +1,34 @@
+import { Extension } from "@tiptap/core";
+import { Code } from "@tiptap/extension-code";
 import type { Node } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import { defaultMarkdownSerializer, MarkdownSerializer } from "prosemirror-markdown";
 import { normalizeContentHref } from "./markdown";
 
+const listSpacing = Extension.create({
+  name: "markdownListSpacing",
+  addGlobalAttributes() {
+    return [{ types: ["bulletList", "orderedList"], attributes: { tight: { default: true, rendered: false } } }];
+  },
+});
+
 export function threadEditorExtensions() {
-  return [StarterKit.configure({
-    heading: { levels: [1, 2, 3] },
-    strike: false,
-    underline: false,
-    link: {
-      defaultProtocol: "https",
-      openOnClick: false,
-      isAllowedUri: (uri) => normalizeContentHref(uri) !== null,
-    },
-  })];
+  return [
+    StarterKit.configure({
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
+      code: false,
+      strike: false,
+      underline: false,
+      link: {
+        defaultProtocol: "https",
+        openOnClick: false,
+        isAllowedUri: (uri) => normalizeContentHref(uri) !== null,
+      },
+    }),
+    // CommonMark allows links/emphasis around code. Serialize the code mark innermost.
+    Code.extend({ excludes: "", priority: 90 }),
+    listSpacing,
+  ];
 }
 
 function fenceFor(text: string, minimum: number) {
@@ -76,7 +91,10 @@ const threadSerializer = new MarkdownSerializer({
       if (!link) return "";
       // Angle brackets allow parentheses in the destination. Preserve literal ampersands.
       const href = link.href.replace(/</g, "%3C").replace(/>/g, "%3E").replace(/&/g, "&amp;");
-      return `](<${href}>)`;
+      const title = typeof mark.attrs.title === "string"
+        ? mark.attrs.title.replace(/&/g, "&amp;").replace(/[\\"]/g, "\\$&").replace(/[\r\n]+/g, " ")
+        : "";
+      return title ? `](<${href}> "${title}")` : `](<${href}>)`;
     },
   },
 }, { hardBreakNodeName: "hardBreak", escapeExtraCharacters: /[<>&!=]/g });

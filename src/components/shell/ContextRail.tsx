@@ -3,6 +3,7 @@ import Link from "next/link";
 import { db } from "@/db";
 import { comments, leads, posts, spaces, users } from "@/db/schema";
 import { PLATFORM_RULES } from "@/lib/constants";
+import { activePost } from "@/lib/post-access";
 import { formatBudget, routes } from "@/lib/utils";
 import { Avatar, VerifiedMark } from "../primitives";
 import { Widget } from "../Widget";
@@ -23,7 +24,7 @@ export async function ContextRail() {
         weekly: sql<number>`count(${posts.id})::int`,
       })
       .from(spaces)
-      .leftJoin(posts, and(eq(posts.spaceId, spaces.id), eq(posts.isRemoved, false), gte(posts.createdAt, since)))
+      .leftJoin(posts, and(eq(posts.spaceId, spaces.id), activePost, gte(posts.createdAt, since)))
       .where(eq(spaces.privacy, "public"))
       .groupBy(spaces.id)
       .orderBy(desc(sql`count(${posts.id})`), desc(spaces.memberCount))

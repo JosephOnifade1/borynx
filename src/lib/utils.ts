@@ -49,6 +49,7 @@ export const routes = {
   spaceMod: (slug: string) => `/b/${slug}/mod`,
   post: (spaceSlug: string, id: number, slug: string) => `/b/${spaceSlug}/p/${id}/${slug}`,
   postShort: (id: number) => `/p/${id}`,
+  postEdit: (id: number) => `/p/${id}/edit`,
   profile: (username: string) => `/f/${username}`,
   me: () => "/me",
   leads: () => "/l",

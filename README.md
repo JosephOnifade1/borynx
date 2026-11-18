@@ -70,6 +70,15 @@ npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+### Post author action tests
+Run `npx vitest run` for unit tests, including legacy Markdown round-trips. To also exercise edit and delete through the API, start Borynx with a disposable, demo-seeded local database and run:
+
+```bash
+BORYNX_POST_TEST_ORIGIN=http://127.0.0.1:3000 npx vitest run
+```
+
+The opt-in tests create fixture users, posts, replies, and reports. Do not point the local app at a shared or production database for these tests.
+
 ---
 
 ## 📖 Feature Implementation Documentation

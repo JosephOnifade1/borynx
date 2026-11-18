@@ -19,10 +19,11 @@ import { ShareButton, VoteRail } from "../feed/controls";
 
 interface Props {
   postId: number;
-  postAuthorId: number;
+  postAuthorId: number | null;
   postHref: string;
   spaceId: number;
   canModerate: boolean;
+  locked?: boolean;
   initialCount: number;
   initialComments?: CommentNode[];
 }
@@ -118,7 +119,7 @@ function Composer({ postId, parentId, onDone, autoFocus }: { postId: number; par
 
 /* ---------------- Row ---------------- */
 
-const CommentRow = memo(function CommentRow({ node, canAccept, postId, postHref, spaceId, replyingTo, setReplyingTo }: { node: CommentNode; canAccept: boolean; postId: number; postHref: string; spaceId: number; replyingTo: number | null; setReplyingTo: (id: number | null) => void }) {
+const CommentRow = memo(function CommentRow({ node, canAccept, locked, postId, postHref, spaceId, replyingTo, setReplyingTo }: { node: CommentNode; canAccept: boolean; locked: boolean; postId: number; postHref: string; spaceId: number; replyingTo: number | null; setReplyingTo: (id: number | null) => void }) {
   const qc = useQueryClient();
   const notify = useUiStore((s) => s.notify);
   const accept = useMutation({
@@ -157,10 +158,14 @@ const CommentRow = memo(function CommentRow({ node, canAccept, postId, postHref,
           <MarkdownRenderer source={node.body} className="text-[14px]" />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <VoteRail targetType="comment" id={node.id} upvotes={node.upvotes} downvotes={node.downvotes} userVote={node.userVote} orientation="horizontal" size="sm" />
-          <button type="button" className="btn btn-ghost btn-sm text-ink-3" onClick={() => setReplyingTo(replyingTo === node.id ? null : node.id)}>
-            <Reply size={12} /> Reply
-          </button>
+          {!locked && (
+            <>
+              <VoteRail targetType="comment" id={node.id} upvotes={node.upvotes} downvotes={node.downvotes} userVote={node.userVote} orientation="horizontal" size="sm" />
+              <button type="button" className="btn btn-ghost btn-sm text-ink-3" onClick={() => setReplyingTo(replyingTo === node.id ? null : node.id)}>
+                <Reply size={12} /> Reply
+              </button>
+            </>
+          )}
           {canAccept && !node.isRemoved && (
             <button type="button" className={cn("btn btn-ghost btn-sm", node.isSolution ? "text-success" : "text-ink-3")} onClick={() => accept.mutate()} disabled={accept.isPending}>
               <CheckCircle2 size={12} /> {node.isSolution ? "Unmark solution" : "Mark as solution"}
@@ -169,7 +174,7 @@ const CommentRow = memo(function CommentRow({ node, canAccept, postId, postHref,
           <ShareButton path={`${postHref}#c-${node.id}`} />
           <ReportButton target={{ type: "comment", id: node.id, label: node.body, spaceId }} />
         </div>
-        {replyingTo === node.id && (
+        {!locked && replyingTo === node.id && (
           <div className="mt-3">
             <Composer postId={postId} parentId={node.id} onDone={() => setReplyingTo(null)} autoFocus />
           </div>
@@ -181,7 +186,7 @@ const CommentRow = memo(function CommentRow({ node, canAccept, postId, postHref,
 
 /* ---------------- Thread ---------------- */
 
-export function CommentThread({ postId, postAuthorId, postHref, spaceId, canModerate, initialCount, initialComments }: Props) {
+export function CommentThread({ postId, postAuthorId, postHref, spaceId, canModerate, locked = false, initialCount, initialComments }: Props) {
   const user = useSession();
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -191,7 +196,7 @@ export function CommentThread({ postId, postAuthorId, postHref, spaceId, canMode
     initialData: initialComments ? { items: initialComments } : undefined,
   });
   const items = useMemo(() => data?.items ?? [], [data]);
-  const canAccept = Boolean(user && (user.id === postAuthorId || canModerate));
+  const canAccept = Boolean(!locked && user && (user.id === postAuthorId || canModerate));
 
   const virtualizer = useWindowVirtualizer({ count: items.length, estimateSize: () => 140, overscan: 10, scrollMargin: listRef.current?.offsetTop ?? 0, initialRect: { width: 1024, height: 900 }, initialOffset: 0 });
   const setReply = useCallback((id: number | null) => setReplyingTo(id), []);
@@ -213,7 +218,7 @@ export function CommentThread({ postId, postAuthorId, postHref, spaceId, canMode
         </h2>
         <span className="eyebrow">solutions first · then score</span>
       </header>
-      <Composer postId={postId} parentId={null} onDone={() => undefined} />
+      {!locked && <Composer postId={postId} parentId={null} onDone={() => undefined} />}
 
       <div className="mt-6">
         {isPending && (
@@ -238,14 +243,14 @@ export function CommentThread({ postId, postAuthorId, postHref, spaceId, canMode
             </button>
           </p>
         )}
-        {data && items.length === 0 && <p className="py-6 text-center text-[13px] text-ink-3">No comments yet. The first reply often becomes the accepted solution.</p>}
+        {!locked && data && items.length === 0 && <p className="py-6 text-center text-[13px] text-ink-3">No comments yet. The first reply often becomes the accepted solution.</p>}
         {items.length > 0 && (
           <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualizer.getVirtualItems().map((vi) => {
               const node = items[vi.index];
               return (
                 <div key={node.id} id={`c-${node.id}`} data-index={vi.index} ref={virtualizer.measureElement} className="absolute left-0 top-0 w-full" style={{ transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)` }}>
-                  <CommentRow node={node} canAccept={canAccept} postId={postId} postHref={postHref} spaceId={spaceId} replyingTo={replyingTo} setReplyingTo={setReply} />
+                  <CommentRow node={node} canAccept={canAccept} locked={locked} postId={postId} postHref={postHref} spaceId={spaceId} replyingTo={replyingTo} setReplyingTo={setReply} />
                 </div>
               );
             })}
