@@ -370,6 +370,18 @@ select.field {
 }
 
 /* ---------- Markdown ---------- */
+.thread-body,
+.thread-editor-content {
+  overflow-wrap: anywhere;
+}
+.thread-editor-content:focus-visible {
+  outline: none; /* The editor frame handles focus-within. */
+}
+.thread-editor-content pre,
+.thread-body pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
 .prose-bx {
   font-size: 14.5px;
   line-height: 1.65;
