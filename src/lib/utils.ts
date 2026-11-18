@@ -52,6 +52,7 @@ export const routes = {
   postShort: (id: number) => `/p/${id}`,
   postEdit: (id: number) => `/p/${id}/edit`,
   profile: (username: string) => `/f/${username}`,
+  profileProjects: (username: string) => `/f/${username}?tab=projects`,
   me: () => "/me",
   leads: () => "/l",
   leadNew: () => "/l/new",
@@ -62,6 +63,7 @@ export const routes = {
   notifications: () => "/notifications",
   saved: () => "/saved",
   settings: () => "/settings",
+  settingsProjects: () => "/settings/projects",
   achievements: () => "/achievements",
   login: () => "/login",
 } as const;

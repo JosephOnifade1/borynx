@@ -1,6 +1,6 @@
 # Phase 4 — Adaptive profiles (settings and hiring signals)
 
-This is the first Phase 4 change. Structured Projects, covers, ordering, and project moderation are the next change. Local demo sign-in still works through plain `npm run dev`; this does not turn on verified email sign-in or deploy to a hosted service.
+This is the profile settings part of Phase 4. See [Portfolio projects](./MARKETPLACE_PHASE_4_PROJECTS.md) for drafts, covers, ordering, and project moderation. These features do not enable verified email sign-in or deploy to a hosted service. Consult the [local database runbook](./LOCAL_DATABASE.md) before running any demo.
 
 ## Try it in development
 

@@ -3,6 +3,7 @@ import {
   boolean,
   index,
   check,
+  customType,
   integer,
   jsonb,
   pgEnum,
@@ -11,6 +12,7 @@ import {
   primaryKey,
   serial,
   text,
+  unique,
   timestamp,
   uniqueIndex,
   uuid,
@@ -96,6 +98,55 @@ export const users = pgTable(
     check("users_public_company_name_set", sql`not ${t.companyNamePublic} or (${t.companyName} is not null and length(trim(${t.companyName})) > 0)`),
   ],
 );
+
+/** Drafts and public rows share private storage. Only application queries can publish them. */
+export const portfolioProjects = privateSchema.table("portfolio_projects", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  description: text("description").notNull(),
+  roleOutcome: varchar("role_outcome", { length: 500 }),
+  liveUrl: varchar("live_url", { length: 255 }),
+  repoUrl: varchar("repo_url", { length: 255 }),
+  techTags: varchar("tech_tags", { length: 24 }).array().notNull(),
+  position: integer("position").notNull(),
+  isPublished: boolean("is_published").default(false).notNull(),
+  hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  // The migration defers this constraint to commit so full-list swaps remain atomic.
+  unique("portfolio_projects_user_position_unique").on(t.userId, t.position),
+  check("portfolio_projects_position_range", sql`${t.position} between 0 and 5`),
+  check("portfolio_projects_title_length", sql`length(trim(${t.title})) >= 3`),
+  check("portfolio_projects_description_length", sql`length(trim(${t.description})) between 20 and 2000`),
+  check("portfolio_projects_tags_count", sql`cardinality(${t.techTags}) between 1 and 8`),
+  index("portfolio_projects_hidden_idx").on(t.hiddenAt).where(sql`${t.hiddenAt} is not null`),
+]).enableRLS();
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+/** A single sanitized WebP per project, with no bearer URL or independent object lifetime. */
+export const portfolioProjectCovers = privateSchema.table("portfolio_project_covers", {
+  projectId: integer("project_id").primaryKey().references(() => portfolioProjects.id, { onDelete: "cascade" }),
+  bytes: bytea("bytes").notNull(),
+  altText: varchar("alt_text", { length: 160 }).default("").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [check("portfolio_project_cover_size", sql`octet_length(${t.bytes}) between 1 and 3145728`)]).enableRLS();
+
+/** Hold the minimal audit record even if an owner later deletes the project. */
+export const portfolioProjectDecisions = privateSchema.table("portfolio_project_decisions", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull(),
+  moderatorId: integer("moderator_id").references(() => users.id, { onDelete: "set null" }),
+  action: varchar("action", { length: 7 }).$type<"hide" | "restore">().notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("portfolio_project_decisions_project_idx").on(t.projectId, t.createdAt),
+  check("portfolio_project_decisions_action", sql`${t.action} in ('hide', 'restore')`),
+  check("portfolio_project_decisions_reason", sql`length(trim(${t.reason})) > 0`),
+]).enableRLS();
 
 /** Provider is scoped to the exact Supabase Auth origin, never to an email or a handle. */
 export const authIdentities = privateSchema.table("auth_identities", {

@@ -71,6 +71,13 @@
       "when": 1795031789823,
       "tag": "0009_adaptive_profile_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795035870553,
+      "tag": "0010_portfolio_projects",
+      "breakpoints": true
     }
   ]
 }

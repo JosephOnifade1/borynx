@@ -14,7 +14,7 @@ Borynx is built specifically for tech freelancers (Engineering, Design, DevOps, 
 - **Leads Marketplace (`/l`):** Contracts, bounties, and roles with budget tracking, verified trust signals, pitch submissions, and award workflows.
 - **Practitioner Leaderboard (`/leaderboard`):** Community ranking based on earned karma, accepted solutions, and peer follows.
 - **Notification Engine (`/notifications`):** In-app real-time notifications for replies, solution acceptance, lead bids, and new followers.
-- **Adaptive Profiles (`/f/:username`):** One account can show hiring activity, freelance availability and rates, or both, alongside skills and reputation.
+- **Adaptive Profiles (`/f/:username`):** Show hiring activity, freelance availability and rates, and up to six curated [portfolio projects](./docs/MARKETPLACE_PHASE_4_PROJECTS.md).
 - **Command Palette (<kbd>Cmd+K</kbd> / <kbd>Ctrl+K</kbd>):** Instant keyboard navigation across communities, threads, leads, and settings.
 
 ---
@@ -42,6 +42,8 @@ npm ci
 ```
 
 ### 2. Start local development
+
+> **Demo isolation caveat:** The current `main` baseline regressed demo sign-in isolation (`65fc188`). Until fixed, use only disposable data on loopback; don't proxy or deploy demo servers. See the [local database runbook](./docs/LOCAL_DATABASE.md).
 
 **Already have demo accounts?** Keep your existing local PostgreSQL `DATABASE_URL` in `.env.local` (any test database name is fine). Run `npm run dev`, then open [http://127.0.0.1:3000/login](http://127.0.0.1:3000/login) and choose or type your handle. No demo flags are needed. If you copied an older `.env.example` that sets `BORYNX_DEMO_MODE=0`, remove that line to use the default; `0` remains an explicit opt-out. Your account ID and role stay the same, and startup does not add fixture accounts or posts. Pending migrations can still apply, so back up your local database first. Use a loopback connection without URL options, use test data only, and don't proxy this server.
 
@@ -86,6 +88,7 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 | `npm test` | Run Vitest unit tests |
 | `npm run test:db` | Test migrations, demo sign-in, marketplace and thread actions, profile settings, and staged email intake on disposable services |
 | `npm run test:db -- --profiles-only` | Verify adaptive profiles and privacy on an upgraded disposable database |
+| `npm run test:db -- --projects-only` | Verify portfolio privacy, cover handling, moderation, and ordering on disposable services |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
 | `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
 | `npm run db:prune-email` | Scrub expired intake content and prune receipts, send reservations and sessions on the explicitly configured database |

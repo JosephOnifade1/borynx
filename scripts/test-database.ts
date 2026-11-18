@@ -512,11 +512,58 @@ async function checkPhaseThreeProfileUpgrade(url: string, directory: string) {
   console.log("PASS Phase 3 upgrade keeps the original accounts and private intake name; profile settings run through plain npm run dev");
 }
 
+async function checkPortfolioUpgrade(url: string, directory: string) {
+  const previous = await copyJournalPrefix(directory, "adaptive-profile-migrations", 10);
+  const ownerId = await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, previous.folder), { applied: 10, available: 10 });
+    const { rows: [owner] } = await pool.query<{ id: number }>(`insert into users
+      (username, display_name, looking_to_hire, available_for_work, company_name, hourly_rate, hourly_currency) values
+      ('projects-owner', 'Portfolio Owner', true, true, 'Private Portfolio Intake Company', 90, 'EUR') returning id`);
+    await pool.query(`insert into users (username, display_name, role) values
+      ('projects-visitor', 'Portfolio Visitor', 'member'), ('projects-reviewer', 'Portfolio Reviewer', 'moderator'),
+      ('projects-cap', 'Portfolio Curator', 'member')`);
+    await pool.query(`do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
+      if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+    end $$;
+    alter default privileges in schema borynx_private grant select on tables to anon, authenticated;`);
+    return owner.id;
+  });
+  await withApp(url, "npm-default", async (origin) => {
+    await usingDatabase(url, async (pool) => {
+      assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+      const { rows: [owner] } = await pool.query(`select id, company_name, company_name_public, looking_to_hire, available_for_work, hourly_rate, hourly_currency
+        from users where username = 'projects-owner'`);
+      assert.deepEqual(owner, { id: ownerId, company_name: "Private Portfolio Intake Company", company_name_public: false,
+        looking_to_hire: true, available_for_work: true, hourly_rate: 90, hourly_currency: "EUR" });
+      const { rows: tables } = await pool.query(`select c.relname, c.relrowsecurity,
+        has_table_privilege('anon', c.oid, 'select') as anon_select,
+        has_table_privilege('authenticated', c.oid, 'select') as authenticated_select
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'borynx_private' and c.relkind = 'r' and c.relname like 'portfolio_%'`);
+      assert.equal(tables.length, 3);
+      for (const table of tables) assert.deepEqual([table.relrowsecurity, table.anon_select, table.authenticated_select], [true, false, false]);
+      assert.equal((await pool.query("select count(*)::int as n from borynx_private.portfolio_projects")).rows[0].n, 0);
+    });
+    await runAppTests(["src/lib/__tests__/portfolio.integration.test.ts"], {
+      BORYNX_PROJECT_TEST_ORIGIN: origin, BORYNX_PROJECT_TEST_DATABASE_URL: url,
+    });
+  });
+  console.log("PASS adaptive profile upgrade preserves owner data and keeps portfolio drafts, covers and decisions in app-only tables");
+}
+
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
   if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   if (process.argv.includes("--local-demo-only")) return checkDefaultDevSignIn(await createDatabase("app_db"));
   if (process.argv.includes("--profiles-only")) return checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
+  if (process.argv.includes("--projects-only")) {
+    await usingDatabase(await createDatabase("borynx_demo_projects_fresh"), async (pool) => {
+      assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+      assert.equal((await pool.query("select count(*)::int as n from borynx_private.portfolio_projects")).rows[0].n, 0);
+    });
+    return checkPortfolioUpgrade(await createDatabase("borynx_demo_projects"), directory);
+  }
   await checkMigrationUpgrade(await createDatabase("borynx_demo_upgrade"), directory);
   await checkPhaseZeroUpgrade(await createDatabase("borynx_demo_phase0_upgrade"), directory);
   await checkLegacyBids(await createDatabase("borynx_demo_phase1_upgrade"), directory);
@@ -535,4 +582,5 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
   }));
   await checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   await checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
+  await checkPortfolioUpgrade(await createDatabase("borynx_demo_projects"), directory);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

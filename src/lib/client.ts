@@ -39,7 +39,7 @@ export async function api<T>(url: string, init?: RequestInit & { json?: unknown 
     const retryAfter = Number(res.headers.get("Retry-After"));
     throw new ClientError(res.status, payload.error ?? `Request failed (${res.status})`, payload.code ?? "error", payload.fields, retryAfter > 0 && Number.isFinite(retryAfter) ? retryAfter : undefined);
   }
-  return (await res.json()) as T;
+  return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
 export const queryKeys = {

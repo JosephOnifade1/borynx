@@ -5,10 +5,12 @@ import { db } from "@/db";
 import { comments, leads, modActions, posts, reports, spaces, users } from "@/db/schema";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
 import { ReportDecision, UserDiscipline } from "@/components/mod/ModActions";
+import { ProjectModeration } from "@/components/portfolio/ProjectModeration";
 import { ReportedPostEvidence } from "@/components/mod/ReportedPostEvidence";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { Avatar } from "@/components/primitives";
 import { getCurrentUser, isSiteStaff, isSuspended } from "@/lib/auth";
+import { listHiddenProjectsForReview } from "@/lib/portfolio";
 import { REPORT_REASON_LABEL } from "@/lib/constants";
 import { routes, timeAgo } from "@/lib/utils";
 
@@ -21,7 +23,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
   const { status: statusParam } = await searchParams;
   const status = statusParam === "approved" || statusParam === "dismissed" ? statusParam : "pending";
 
-  const [rows, counts, restricted, recentActions, submissions] = await Promise.all([
+  const [rows, counts, restricted, recentActions, submissions, hiddenProjects] = await Promise.all([
     db
       .select({ report: reports, reporter: { username: users.username }, space: { slug: spaces.slug } })
       .from(reports)
@@ -37,6 +39,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
       .from(leads).innerJoin(users, eq(leads.authorId, users.id))
       .where(and(eq(leads.isRemoved, false), or(eq(leads.publicationStatus, "pending_review"), isNotNull(leads.reviewedAt))))
       .orderBy(desc(sql`${eq(leads.publicationStatus, "pending_review")} and ${ne(leads.status, "closed")}`), desc(leads.createdAt), desc(leads.id)).limit(50),
+    listHiddenProjectsForReview(user.id),
   ]);
 
   const ids = (t: "post" | "comment" | "lead") => rows.filter((r) => r.report.targetType === t).map((r) => r.report.targetId);
@@ -119,6 +122,20 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
             </li>)}
           </ul>
         )}
+      </section>
+      <section aria-labelledby="hidden-projects-heading" className="border-b border-line px-4 py-5 sm:px-6">
+        <h2 id="hidden-projects-heading" className="display text-[18px]">Hidden portfolio projects</h2>
+        <p className="mt-1 text-[13px] text-ink-3">Restore a project’s eligibility for public display without viewing its private content or changing its draft status.</p>
+        {hiddenProjects.length ? (
+          <ul className="mt-3 divide-y divide-line rounded-md border border-line">
+            {hiddenProjects.map((project) => (
+              <li key={project.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-[13px]">
+                <p><span className="font-semibold">Project #{project.id}</span> · <Link href={routes.profileProjects(project.username)} className="num hover:underline">f/{project.username}</Link></p>
+                <ProjectModeration id={project.id} action="restore" />
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-3 text-[13px] text-ink-3">No hidden projects to review.</p>}
       </section>
       <h2 className="display px-4 pt-4 text-[17px] sm:px-6">Reports</h2>
       <div className="hairline-b flex items-center gap-1 px-4 py-2.5">

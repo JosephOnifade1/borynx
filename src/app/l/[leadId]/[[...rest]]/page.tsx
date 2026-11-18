@@ -281,7 +281,10 @@ export default async function LeadPage({ params }: { params: Params }) {
                       <time dateTime={pitch.createdAt.toISOString()} className="num">{timeAgo(pitch.createdAt)}</time>
                     </div>
                     <p className="mt-2 whitespace-pre-wrap break-words text-[13px] text-ink-2">{pitch.message}</p>
-                    {canAward && pitch.userId !== lead.authorId && <AwardBidButton leadId={lead.id} bidId={pitch.id} bidderName={pitch.displayName} />}
+                    <div className="mt-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <Link href={routes.profileProjects(pitch.username)} className="text-[13px] font-medium text-verdigris hover:underline">View projects</Link>
+                      {canAward && pitch.userId !== lead.authorId && <AwardBidButton leadId={lead.id} bidId={pitch.id} bidderName={pitch.displayName} />}
+                    </div>
                   </li>
                 ))}
               </ul>
