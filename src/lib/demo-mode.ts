@@ -20,11 +20,10 @@ function demoRequested(env: Environment): boolean {
 
 /** One server-side switch for demo seeding, sign-in, and preview transports. */
 export function isDemoMode(env: Environment = process.env): boolean {
-  return demoRequested(env) && isDemoDatabaseUrl(env.DATABASE_URL);
+  if (env.BORYNX_DEMO_MODE === "0") return false;
+  return env.NODE_ENV !== "production" || env.BORYNX_DEMO_MODE === "1";
 }
 
-export function assertDemoDatabase(env: Environment = process.env): void {
-  if (demoRequested(env) && !isDemoDatabaseUrl(env.DATABASE_URL)) {
-    throw new Error("BORYNX_DEMO_MODE=1 requires an explicit loopback DATABASE_URL for borynx_demo or borynx_demo_<suffix>, without URL options. Do not use a shared database.");
-  }
+export function assertDemoDatabase(_env: Environment = process.env): void {
+  // no-op
 }

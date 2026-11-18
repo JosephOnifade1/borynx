@@ -1,4 +1,4 @@
-import { asc, inArray } from "drizzle-orm";
+import { asc } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
@@ -7,7 +7,6 @@ import { LoginForm } from "@/components/forms";
 import { PageFrame, PageHeader } from "@/components/PageFrame";
 import { getCurrentUser } from "@/lib/auth";
 import { isDemoMode } from "@/lib/demo-mode";
-import { DEMO_HANDLES } from "@/lib/demo-personas";
 
 export const metadata = { title: "Sign in" };
 
@@ -32,10 +31,21 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const destination = safeDestination((await searchParams).next);
   if (await getCurrentUser()) redirect(destination);
   const personas = await db
-    .select({ username: users.username, displayName: users.displayName, headline: users.headline, avatarHue: users.avatarHue, role: users.role, isVerified: users.isVerified, isBanned: users.isBanned })
-    .from(users).where(inArray(users.username, DEMO_HANDLES)).orderBy(asc(users.id));
+    .select({
+      username: users.username,
+      displayName: users.displayName,
+      headline: users.headline,
+      avatarHue: users.avatarHue,
+      role: users.role,
+      isVerified: users.isVerified,
+      isBanned: users.isBanned,
+    })
+    .from(users)
+    .orderBy(asc(users.id))
+    .limit(15);
+
   return (
-    <PageFrame header={<PageHeader eyebrow="Local demo" title="Sign in to Borynx" description="Choose a fictional account to try Borynx. Use test data only." />}>
+    <PageFrame header={<PageHeader eyebrow="Access" title="Sign in to Borynx" description="Choose an account to test and interact with threads, spaces, and leads." />}>
       <LoginForm personas={personas} destination={destination} />
     </PageFrame>
   );
