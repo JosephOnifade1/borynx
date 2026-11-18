@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { notifications, users, type NewNotification, type Notification, type NotificationType } from "@/db/schema";
+import { leads, notifications, users, type NewNotification, type Notification, type NotificationType } from "@/db/schema";
+import { publicLead } from "./lead-access";
 import type { AuthorSummary } from "./types";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -44,11 +45,20 @@ export async function createNotification(
   return row ?? null;
 }
 
+// Legacy bid notices may reference a lead that the publication migration kept private.
+function visibleNotification(userId: number) {
+  const visibleLead = exists(db.select({ id: leads.id }).from(leads).where(and(
+    eq(leads.id, notifications.entityId),
+    or(publicLead, and(eq(leads.isRemoved, false), eq(leads.authorId, userId))),
+  )));
+  return and(eq(notifications.userId, userId), or(isNull(notifications.entityType), ne(notifications.entityType, "lead"), visibleLead));
+}
+
 export async function getUnreadNotificationCount(userId: number, exec: Executor = db): Promise<number> {
   const [row] = await exec
     .select({ count: sql<number>`count(*)::int` })
     .from(notifications)
-    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    .where(and(visibleNotification(userId), eq(notifications.isRead, false)));
   return row?.count ?? 0;
 }
 
@@ -71,7 +81,7 @@ export async function listNotifications(
     })
     .from(notifications)
     .leftJoin(users, eq(users.id, notifications.actorId))
-    .where(eq(notifications.userId, userId))
+    .where(visibleNotification(userId))
     .orderBy(desc(notifications.createdAt))
     .limit(limit);
 

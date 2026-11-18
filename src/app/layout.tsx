@@ -15,9 +15,8 @@ export const metadata: Metadata = {
   description: "The professional network and lead marketplace for tech freelancers — software engineering, web & mobile, DevOps, design, security, data, AI/ML, product, and consulting.",
 };
 
-// Apply the current theme before paint. The preview transport runs only in local demo mode.
+// Apply the current theme before paint. Demo transport is installed by the demo provider.
 const themeScript = `(function(){var d=document.documentElement;try{var t=null;try{t=localStorage.getItem('bx-theme')}catch(e){}if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}if(t==='dark'){d.classList.add('dark')}}catch(e){}})();`;
-const demoSessionScript = `window.__bxDemoMode=true;(function(){try{var f=window.fetch;if(!f||f.__bx)return;var read=function(){var v=null;try{v=localStorage.getItem('bx-token')}catch(e){}if(!v){try{v=sessionStorage.getItem('bx-token')}catch(e){}}return v||window.__bxToken||null};var w=function(input,init){try{var tok=read();if(tok){var url=typeof input==='string'?input:(input&&input.url)?input.url:String(input);if(new URL(url,location.href).origin===location.origin){var h=new Headers((init&&init.headers)||(input&&typeof input==='object'&&input.headers)||undefined);if(!h.has('x-bx-session')){h.set('x-bx-session',tok)}init=Object.assign({},init||{},{headers:h})}}}catch(e){}return f.call(window,input,init)};w.__bx=true;window.fetch=w}catch(e){}})();`;
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const demoMode = isDemoMode();
@@ -26,11 +25,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript + (demoMode ? demoSessionScript : "") }} />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-screen antialiased">
         {status.ok ? (
-          <Providers user={user ? toPublicUser(user) : null} demoMode={demoMode}>
+          // Reset cached private data on account changes. This also lets a demo header session
+          // replace an initially signed-out 404 after the client refreshes with credentials.
+          <Providers key={user?.id ?? "guest"} user={user ? toPublicUser(user) : null} demoMode={demoMode}>
             <AppShell user={user}>{children}</AppShell>
           </Providers>
         ) : (

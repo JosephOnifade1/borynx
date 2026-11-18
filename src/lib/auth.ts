@@ -196,7 +196,11 @@ export async function requireStaff(): Promise<User> {
 }
 
 export function errorResponse(err: unknown): Response {
-  if (err instanceof HttpError) return Response.json({ error: err.message, code: err.code }, { status: err.status });
+  if (err instanceof HttpError) {
+    const headers = new Headers({ "Cache-Control": "private, no-store" });
+    if (err.retryAfter !== undefined) headers.set("Retry-After", String(err.retryAfter));
+    return Response.json({ error: err.message, code: err.code, ...(err.fields && { fields: err.fields }) }, { status: err.status, headers });
+  }
   console.error(err);
   return Response.json({ error: "Something went wrong", code: "internal" }, { status: 500 });
 }

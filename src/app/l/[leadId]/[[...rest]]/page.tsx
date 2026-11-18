@@ -1,72 +1,134 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { Lock, MapPin, ShieldCheck, Trophy } from "lucide-react";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
+import { cache } from "react";
 import { db } from "@/db";
-import { leadBids, leads, spaces, users, votes } from "@/db/schema";
+import { leadBids, leads, reports, spaces, users, votes } from "@/db/schema";
 import { ShareButton, VoteRail } from "@/components/feed/controls";
 import { BidForm } from "@/components/forms";
+import { LeadComposer } from "@/components/leads/LeadComposer";
+import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
+import { LeadReviewControls, WithdrawLeadButton } from "@/components/leads/LeadReviewControls";
 import { AcceptBidButton, LeadStatusSelector } from "@/components/leads/LeadPosterControls";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-import { PageFrame, Widget } from "@/components/PageFrame";
+import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { Avatar, VerifiedMark } from "@/components/primitives";
 import { ReportButton } from "@/components/shell/ReportModal";
 import { UserHoverCard } from "@/components/UserHoverCard";
-import { getCurrentUser, isSuspended, restrictionMessage } from "@/lib/auth";
+import { getCurrentUser, isSiteStaff, isSuspended, restrictionMessage } from "@/lib/auth";
+import { isAcceptingBids, leadDetailAccess, parseLeadId, publicLead } from "@/lib/lead-access";
+import { LEAD_SKILLS } from "@/lib/lead-input";
 import { LEAD_KIND_LABEL } from "@/lib/constants";
 import { formatBudget, routes, timeAgo } from "@/lib/utils";
 
 type Params = Promise<{ leadId: string; rest?: string[] }>;
 
+const loadLead = cache(async (rawId: string) => {
+  let id: number;
+  try { id = parseLeadId(rawId); } catch { return null; }
+  const user = await getCurrentUser();
+  const isStaff = Boolean(user && isSiteStaff(user) && !isSuspended(user));
+  const [row] = await db.select({
+    lead: leads,
+    isPublic: sql<boolean>`(${publicLead})`,
+    author: { id: users.id, username: users.username, displayName: users.displayName, avatarHue: users.avatarHue, isVerified: users.isVerified, karma: users.karma, headline: users.headline },
+    space: { id: spaces.id, slug: spaces.slug, name: spaces.name, privacy: spaces.privacy },
+  }).from(leads).innerJoin(users, eq(users.id, leads.authorId)).leftJoin(spaces, eq(spaces.id, leads.spaceId))
+    .where(and(eq(leads.id, id), leadDetailAccess(user?.id, isStaff))).limit(1);
+  return row ? { ...row, user, isStaff, isOwner: user?.id === row.lead.authorId } : null;
+});
+
+type VisibleLead = NonNullable<Awaited<ReturnType<typeof loadLead>>>;
+const privateMetadata: Metadata = { title: "Lead", robots: { index: false, follow: false } };
+
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
-  try {
-    const { leadId } = await params;
-    const id = Number.parseInt(leadId, 10);
-    if (!Number.isFinite(id)) return { title: "Lead" };
-    const [lead] = await db.select({ title: leads.title }).from(leads).where(eq(leads.id, id)).limit(1);
-    return { title: lead ? lead.title : "Lead" };
-  } catch {
-    return { title: "Lead" };
-  }
+  const row = await loadLead((await params).leadId).catch(() => null);
+  return row?.isPublic ? { title: row.lead.title } : privateMetadata;
 }
 
-/** Canonical: /l/:id/:slug — slug drift redirects. */
+function Deadline({ date }: { date: Date }) {
+  const iso = date.toISOString();
+  return <time dateTime={iso}>{iso.slice(0, 16).replace("T", " ")} UTC</time>;
+}
+
+function Skills({ tags }: { tags: string[] }) {
+  return tags.length ? <ul aria-label="Skills" className="mt-3 flex flex-wrap gap-1.5">
+    {tags.map((skill) => <li key={skill} className="tag">{LEAD_SKILLS[skill] ?? skill}</li>)}
+  </ul> : null;
+}
+
+async function PrivateLead({ row }: { row: VisibleLead }) {
+  const { lead, author, space, isOwner, user, isStaff } = row;
+  const closedSubmission = lead.status === "closed" && lead.publicationStatus !== "published";
+  const active = !closedSubmission && !lead.isRemoved;
+  const canEdit = active && isOwner && Boolean(user && !isSuspended(user));
+  const needsChanges = lead.publicationStatus === "changes_requested";
+  const canReview = active && isStaff && !isOwner && lead.publicationStatus === "pending_review";
+  const canWithdraw = canEdit && (lead.publicationStatus === "pending_review" || needsChanges);
+  const [publicSpaces, flags] = await Promise.all([
+    canEdit && needsChanges ? db.select({ slug: spaces.slug, name: spaces.name }).from(spaces).where(eq(spaces.privacy, "public")).orderBy(spaces.name) : Promise.resolve([]),
+    isStaff ? db.select({ id: reports.id, details: reports.details }).from(reports).where(and(
+      eq(reports.targetType, "lead"), eq(reports.targetId, lead.id), eq(reports.status, "pending"), eq(reports.reason, "automated_filter"),
+    )).limit(10) : Promise.resolve([]),
+  ]);
+  const description = lead.isRemoved ? "A report decision removed this lead. It cannot be published."
+    : closedSubmission ? (lead.submissionKey === null ? "This older listing is closed and not on the public board." : "The author withdrew this submission. It is not on the board.")
+      : needsChanges ? "A site reviewer asked for corrections before publication."
+        : lead.publicationStatus === "rejected" ? "A site reviewer did not approve this brief."
+          : lead.publicationStatus === "published" ? "This listing is not visible on the public board because of its linked space."
+            : "Only the author and site reviewers can see this brief while it waits for review.";
+  return (
+    <PageFrame header={<PageHeader eyebrow={`Private lead · revision ${lead.revision}`} title={lead.title} description={description} />}>
+      <article className="px-4 py-5 sm:px-6">
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
+          <LeadPublicationBadge state={lead.publicationStatus} removed={lead.isRemoved} closed={closedSubmission} legacy={lead.submissionKey === null} />
+          <span className="num">f/{author.username}</span>
+          <span className="tag">{LEAD_KIND_LABEL[lead.kind]}</span>
+          <span className="tag">{lead.category}</span>
+          <span className="num">{formatBudget(lead.budgetMin, lead.budgetMax, lead.currency, lead.budgetUnit)}</span>
+          {space && <span className="tag">b/{space.slug}</span>}
+        </div>
+        <Skills tags={lead.skillTags} />
+        {lead.deadlineAt && <p className="mt-2 text-[12.5px] text-ink-3">Bid deadline: <Deadline date={lead.deadlineAt} /></p>}
+        <div className="mt-4"><MarkdownRenderer source={lead.description} /></div>
+        {lead.reviewNote && <aside className="mt-4 rounded-md border border-line bg-sunken/40 px-3 py-2.5">
+          <p className="eyebrow">Reviewer note</p><p className="mt-1 whitespace-pre-wrap break-words text-[13px] text-ink-2">{lead.reviewNote}</p>
+        </aside>}
+        {flags.length > 0 && <aside className="mt-4 rounded-md border border-line px-3 py-2.5">
+          <p className="eyebrow text-danger">Open screening reports</p>
+          <ul className="mt-2 space-y-1 text-[12.5px] text-ink-2">{flags.map((flag) => <li key={flag.id}>{flag.details}</li>)}</ul>
+        </aside>}
+        {canWithdraw && <WithdrawLeadButton leadId={lead.id} />}
+        {isStaff && isOwner && active && lead.publicationStatus === "pending_review" && <p className="mt-3 text-[13px] text-ink-3">Another site reviewer must decide on your submission.</p>}
+      </article>
+      {canReview && <LeadReviewControls key={lead.revision} leadId={lead.id} revision={lead.revision} canPublish={!space || space.privacy === "public"} />}
+      {canEdit && needsChanges && <section className="border-t border-line" aria-label="Make corrections">
+        <h2 className="display px-4 pt-5 text-[17px] sm:px-7">Revise your brief</h2>
+        <LeadComposer key={lead.revision} spaces={publicSpaces} correction={{ id: lead.id, revision: lead.revision, enforceFloor: lead.submissionKey !== null, fields: {
+          title: lead.title, description: lead.description, kind: lead.kind, category: lead.category, currency: lead.currency,
+          budgetMin: String(lead.budgetMin), budgetMax: String(lead.budgetMax), budgetUnit: lead.budgetUnit ?? "", skillTags: lead.skillTags,
+          deadlineAt: lead.deadlineAt?.toISOString().slice(0, 16) ?? "", spaceSlug: space?.privacy === "public" ? space.slug : "", location: lead.location,
+        } }} />
+      </section>}
+    </PageFrame>
+  );
+}
+
+/** Only public listings get a canonical slug redirect or title in metadata. */
 export default async function LeadPage({ params }: { params: Params }) {
   const { leadId, rest } = await params;
-  const id = Number.parseInt(leadId, 10);
-  if (!Number.isFinite(id)) notFound();
-  const [row] = await db
-    .select({ lead: leads, author: { id: users.id, username: users.username, displayName: users.displayName, avatarHue: users.avatarHue, isVerified: users.isVerified, karma: users.karma, headline: users.headline }, space: { id: spaces.id, slug: spaces.slug, name: spaces.name } })
-    .from(leads)
-    .innerJoin(users, eq(users.id, leads.authorId))
-    .leftJoin(spaces, eq(spaces.id, leads.spaceId))
-    .where(eq(leads.id, id))
-    .limit(1);
+  const row = await loadLead(leadId);
   if (!row) notFound();
-  const { lead, author, space } = row;
+  if (!row.isPublic) return <PrivateLead row={row} />;
+  const { lead, author, space, user, isStaff, isOwner } = row;
   const canonical = routes.lead(lead.id, lead.slug);
   if ((rest?.[0] ?? "") !== lead.slug || (rest?.length ?? 0) > 1) permanentRedirect(canonical);
 
-  const user = await getCurrentUser();
-  const isStaff = user ? user.role !== "member" : false;
-  if (lead.isRemoved && !isStaff) {
-    return (
-      <PageFrame>
-        <div className="px-6 py-16 text-center">
-          <p className="eyebrow text-danger">Removed</p>
-          <p className="display mt-2 text-[18px]">This lead was removed by a moderator.</p>
-          <Link href={routes.leads()} className="btn mt-4">
-            Back to the marketplace
-          </Link>
-        </div>
-      </PageFrame>
-    );
-  }
-
   const [vote, bids, myBid, [assignedUser]] = await Promise.all([
     user ? db.select({ value: votes.value }).from(votes).where(and(eq(votes.userId, user.id), eq(votes.targetType, "lead"), eq(votes.targetId, lead.id))).limit(1) : Promise.resolve([]),
-    db
+    isOwner || isStaff ? db
       .select({
         id: leadBids.id,
         amount: leadBids.amount,
@@ -81,7 +143,7 @@ export default async function LeadPage({ params }: { params: Params }) {
       .from(leadBids)
       .innerJoin(users, eq(users.id, leadBids.userId))
       .where(eq(leadBids.leadId, lead.id))
-      .orderBy(desc(leadBids.isAccepted), desc(leadBids.createdAt)),
+      .orderBy(desc(leadBids.isAccepted), desc(leadBids.createdAt)) : Promise.resolve([]),
     user ? db.select({ id: leadBids.id }).from(leadBids).where(and(eq(leadBids.leadId, lead.id), eq(leadBids.userId, user.id))).limit(1) : Promise.resolve([]),
     lead.assignedUserId
       ? db
@@ -98,14 +160,14 @@ export default async function LeadPage({ params }: { params: Params }) {
       : Promise.resolve([null]),
   ]);
 
-  const isOwner = user?.id === lead.authorId;
+  const acceptingBids = isAcceptingBids(lead);
   const disabledReason = !user
     ? "Sign in to bid on this lead."
     : isSuspended(user)
       ? restrictionMessage(user)
       : isOwner
         ? "This is your lead. Bids appear below as they arrive."
-        : lead.status !== "open"
+        : !acceptingBids
           ? "This lead is no longer accepting bids."
           : myBid.length
             ? "You've already submitted a bid on this lead."
@@ -116,8 +178,8 @@ export default async function LeadPage({ params }: { params: Params }) {
       aside={
         <>
           <Widget title="Budget">
-            <p className="num text-[22px] font-semibold">{formatBudget(lead.budgetMin, lead.budgetMax, lead.currency)}</p>
-            <p className="eyebrow mt-0.5">{lead.kind === "job" ? "per month" : "total budget"}</p>
+            <p className="num text-[22px] font-semibold">{formatBudget(lead.budgetMin, lead.budgetMax, lead.currency, lead.budgetUnit)}</p>
+            <p className="eyebrow mt-0.5">{lead.budgetUnit === "hourly" ? "Hourly rate" : lead.budgetUnit === "fixed" ? "Fixed amount" : "Budget unit not recorded"}</p>
             <dl className="mt-3 space-y-1.5 text-[12.5px]">
               <div className="flex justify-between">
                 <dt className="text-ink-3">Type</dt>
@@ -133,8 +195,12 @@ export default async function LeadPage({ params }: { params: Params }) {
               </div>
               <div className="flex justify-between">
                 <dt className="text-ink-3">Status</dt>
-                <dd className={lead.status === "open" ? "text-success" : "text-danger"}>{lead.status.replace("_", " ")}</dd>
+                <dd className={acceptingBids ? "text-success" : "text-danger"}>{!acceptingBids && lead.status === "open" ? "Deadline passed" : lead.status.replace("_", " ")}</dd>
               </div>
+              {lead.deadlineAt && <div className="flex flex-wrap justify-between gap-x-2">
+                <dt className="text-ink-3">Bid deadline</dt>
+                <dd className="num"><Deadline date={lead.deadlineAt} /></dd>
+              </div>}
               <div className="flex justify-between">
                 <dt className="text-ink-3">Bids</dt>
                 <dd className="num">{lead.bidCount}</dd>
@@ -209,6 +275,7 @@ export default async function LeadPage({ params }: { params: Params }) {
           </div>
           <div className="min-w-0 flex-1">
             <MarkdownRenderer source={lead.description} />
+            <Skills tags={lead.skillTags} />
             <div className="mt-5 flex flex-wrap items-center gap-1 border-t border-line pt-3">
               <ShareButton path={canonical} label="Copy attributed link" />
               <ReportButton target={{ type: "lead", id: lead.id, label: lead.title, spaceId: space?.id ?? null }} />
@@ -251,7 +318,7 @@ export default async function LeadPage({ params }: { params: Params }) {
             </ul>
           </div>
         )}
-        {!isOwner && !isStaff && bids.length > 0 && <p className="mt-4 text-[12px] text-ink-3">{bids.length} freelancer{bids.length === 1 ? " has" : "s have"} bid. Bid contents are visible to the poster only.</p>}
+        {!isOwner && !isStaff && lead.bidCount > 0 && <p className="mt-4 text-[12px] text-ink-3">{lead.bidCount} freelancer{lead.bidCount === 1 ? " has" : "s have"} bid. Bid contents are visible to the poster only.</p>}
       </section>
     </PageFrame>
   );

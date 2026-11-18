@@ -1,13 +1,14 @@
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { comments, leads, modActions, posts, reports, spaces, users } from "@/db/schema";
+import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
 import { ReportDecision, UserDiscipline } from "@/components/mod/ModActions";
 import { ReportedPostEvidence } from "@/components/mod/ReportedPostEvidence";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { Avatar } from "@/components/primitives";
-import { getCurrentUser, isSiteStaff } from "@/lib/auth";
+import { getCurrentUser, isSiteStaff, isSuspended } from "@/lib/auth";
 import { REPORT_REASON_LABEL } from "@/lib/constants";
 import { routes, timeAgo } from "@/lib/utils";
 
@@ -16,11 +17,11 @@ export const metadata = { title: "Moderation queue" };
 export default async function ModQueuePage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect(`${routes.login()}?next=${routes.modQueue()}`);
-  if (!isSiteStaff(user)) redirect("/");
+  if (!isSiteStaff(user) || isSuspended(user)) redirect("/");
   const { status: statusParam } = await searchParams;
   const status = statusParam === "approved" || statusParam === "dismissed" ? statusParam : "pending";
 
-  const [rows, counts, restricted, recentActions] = await Promise.all([
+  const [rows, counts, restricted, recentActions, submissions] = await Promise.all([
     db
       .select({ report: reports, reporter: { username: users.username }, space: { slug: spaces.slug } })
       .from(reports)
@@ -32,13 +33,17 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
     db.select({ status: reports.status, c: count() }).from(reports).groupBy(reports.status),
     db.select({ id: users.id, username: users.username, displayName: users.displayName, avatarHue: users.avatarHue, banReason: users.banReason, banExpiresAt: users.banExpiresAt, isVerified: users.isVerified }).from(users).where(eq(users.isBanned, true)).limit(10),
     db.select({ action: modActions.action, reason: modActions.reason, createdAt: modActions.createdAt, moderator: users.username }).from(modActions).leftJoin(users, eq(users.id, modActions.moderatorId)).orderBy(desc(modActions.createdAt)).limit(8),
+    db.select({ id: leads.id, title: leads.title, state: leads.publicationStatus, status: leads.status, revision: leads.revision, submissionKey: leads.submissionKey, author: users.username, authorId: leads.authorId })
+      .from(leads).innerJoin(users, eq(leads.authorId, users.id))
+      .where(and(eq(leads.isRemoved, false), or(eq(leads.publicationStatus, "pending_review"), isNotNull(leads.reviewedAt))))
+      .orderBy(desc(sql`${eq(leads.publicationStatus, "pending_review")} and ${ne(leads.status, "closed")}`), desc(leads.createdAt), desc(leads.id)).limit(50),
   ]);
 
   const ids = (t: "post" | "comment" | "lead") => rows.filter((r) => r.report.targetType === t).map((r) => r.report.targetId);
   const [postRows, commentRows, leadRows] = await Promise.all([
     ids("post").length ? db.select({ id: posts.id, title: posts.title, slug: posts.slug, authorId: posts.authorId, isRemoved: posts.isRemoved, spaceSlug: spaces.slug }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(inArray(posts.id, ids("post"))) : Promise.resolve([]),
     ids("comment").length ? db.select({ id: comments.id, body: comments.body, postId: comments.postId, authorId: comments.authorId, isRemoved: comments.isRemoved }).from(comments).where(inArray(comments.id, ids("comment"))) : Promise.resolve([]),
-    ids("lead").length ? db.select({ id: leads.id, title: leads.title, slug: leads.slug, authorId: leads.authorId, isRemoved: leads.isRemoved }).from(leads).where(inArray(leads.id, ids("lead"))) : Promise.resolve([]),
+    ids("lead").length ? db.select({ id: leads.id, title: leads.title, authorId: leads.authorId, isRemoved: leads.isRemoved }).from(leads).where(inArray(leads.id, ids("lead"))) : Promise.resolve([]),
   ]);
   const authorIds = [...new Set([...postRows, ...commentRows, ...leadRows].map((r) => r.authorId))];
   const authors = authorIds.length ? await db.select({ id: users.id, username: users.username, isBanned: users.isBanned, isVerified: users.isVerified, warningCount: users.warningCount }).from(users).where(inArray(users.id, authorIds)) : [];
@@ -50,7 +55,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
 
   return (
     <PageFrame wide
-      header={<PageHeader eyebrow="Moderation · site-wide" title="Moderation queue" description="Approve a report to remove the content and resolve all sibling reports on the same target. Dismiss to keep it. Discipline actions are logged to mod_actions." />}
+      header={<PageHeader eyebrow="Moderation · site-wide" title="Moderation queue" description="Review submissions before publication. Reports are separate: approving a report removes content, and dismissing one does not publish it." />}
       aside={
         <>
           <Widget title="Restricted accounts">
@@ -92,6 +97,30 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
         </>
       }
     >
+      <section aria-labelledby="lead-submissions-heading" className="border-b border-line px-4 py-5 sm:px-6">
+        <div className="mb-3">
+          <p className="eyebrow text-ember">Publication</p>
+          <h2 id="lead-submissions-heading" className="display mt-1 text-[18px]">Lead submissions</h2>
+          <p className="mt-1 text-[13px] text-ink-3">Private briefs awaiting review appear first. Open a brief to review its current revision.</p>
+        </div>
+        {submissions.length === 0 ? <p className="rounded-md border border-dashed border-line p-3 text-[13px] text-ink-3">No submissions yet.</p> : (
+          <ul className="divide-y divide-line rounded-md border border-line">
+            {submissions.map((lead) => <li key={lead.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <LeadPublicationBadge state={lead.state} closed={lead.status === "closed"} legacy={lead.submissionKey === null} />
+                  <span className="num text-[11.5px] text-ink-3">f/{lead.author} · revision {lead.revision}</span>
+                </div>
+                <p className="mt-1.5 text-[14px] font-medium break-words">{lead.title}</p>
+              </div>
+              <Link href={routes.leadSubmission(lead.id)} className={`btn btn-sm ${lead.state === "pending_review" && lead.status !== "closed" && lead.authorId !== user.id ? "btn-primary" : ""}`}>
+                {lead.state === "pending_review" && lead.status !== "closed" && lead.authorId !== user.id ? "Review brief" : "View brief"}
+              </Link>
+            </li>)}
+          </ul>
+        )}
+      </section>
+      <h2 className="display px-4 pt-4 text-[17px] sm:px-6">Reports</h2>
       <div className="hairline-b flex items-center gap-1 px-4 py-2.5">
         {(["pending", "approved", "dismissed"] as const).map((s) => (
           <Link key={s} href={`${routes.modQueue()}?status=${s}`} className={`btn btn-sm ${status === s ? "" : "btn-ghost"}`} aria-current={status === s ? "page" : undefined}>
@@ -134,7 +163,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
                     “{comment.body}”
                   </Link>
                 ) : lead ? (
-                  <Link href={routes.lead(lead.id, lead.slug)} className="hover:underline">
+                  <Link href={routes.leadSubmission(lead.id)} className="hover:underline">
                     {lead.title}
                   </Link>
                 ) : (

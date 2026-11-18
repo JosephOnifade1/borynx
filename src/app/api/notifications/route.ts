@@ -17,5 +17,5 @@ export const GET = handler(async (req: NextRequest) => {
   return Response.json({
     notifications: items,
     unreadCount,
-  });
+  }, { headers: { "Cache-Control": "private, no-store" } });
 });

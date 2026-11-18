@@ -372,7 +372,7 @@ async function seedContent(tx: Executor): Promise<void> {
   const insertedLeads = await tx
     .insert(leads)
     .values(
-      leadSeeds.map((l) => ({
+      leadSeeds.map((l): typeof leads.$inferInsert => ({
         authorId: u[l.author].id,
         spaceId: l.space ? s[l.space].id : null,
         slug: slugify(l.title),
@@ -383,6 +383,7 @@ async function seedContent(tx: Executor): Promise<void> {
         budgetMin: l.min,
         budgetMax: l.max,
         location: l.location,
+        publicationStatus: l.author !== "spamlord99" && (!l.space || s[l.space].privacy === "public") ? "published" : "pending_review",
         isVerified: l.verified,
         isEscrowed: l.escrow,
         upvotes: Math.floor(Math.random() * 30) + 2,

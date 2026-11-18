@@ -1,13 +1,14 @@
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNotNull, ne, or } from "drizzle-orm";
 import Link from "next/link";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { db } from "@/db";
-import { comments, memberships, posts, reports, users } from "@/db/schema";
+import { comments, leads, memberships, posts, reports, users } from "@/db/schema";
 import { ModeratorManager, ReportDecision } from "@/components/mod/ModActions";
 import { ReportedPostEvidence } from "@/components/mod/ReportedPostEvidence";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
-import { canModerateSpace, getCurrentUser } from "@/lib/auth";
+import { canModerateSpace, getCurrentUser, isSiteStaff, isSuspended } from "@/lib/auth";
 import { REPORT_REASON_LABEL } from "@/lib/constants";
+import { publicLead } from "@/lib/lead-access";
 import { resolveSpace } from "@/lib/queries";
 import { routes, timeAgo } from "@/lib/utils";
 
@@ -19,10 +20,13 @@ export default async function SpaceModPage({ params }: { params: Promise<{ slug:
   const space = resolved.space;
   const user = await getCurrentUser();
   if (!user) redirect(`${routes.login()}?next=${encodeURIComponent(routes.spaceMod(space.slug))}`);
-  if (!(await canModerateSpace(user, space.id))) redirect(routes.space(space.slug));
+  if (isSuspended(user) || !(await canModerateSpace(user, space.id))) redirect(routes.space(space.slug));
 
+  const reportAccess = isSiteStaff(user) ? undefined : or(ne(reports.targetType, "lead"), exists(
+    db.select({ id: leads.id }).from(leads).where(and(eq(leads.id, reports.targetId), publicLead)),
+  ));
   const [pending, mods, recentlyRemoved] = await Promise.all([
-    db.select().from(reports).where(and(eq(reports.spaceId, space.id), eq(reports.status, "pending"))).orderBy(desc(reports.createdAt)).limit(50),
+    db.select().from(reports).where(and(eq(reports.spaceId, space.id), eq(reports.status, "pending"), reportAccess)).orderBy(desc(reports.createdAt)).limit(50),
     db
       .select({ username: users.username, modRole: memberships.modRole })
       .from(memberships)

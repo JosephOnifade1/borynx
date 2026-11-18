@@ -30,11 +30,12 @@ export function formatCompact(n: number): string {
   return String(n);
 }
 
-export function formatBudget(min: number, max: number, currency: string): string {
+export function formatBudget(min: number, max: number, currency: string, unit?: "fixed" | "hourly" | null): string {
   const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(v);
-  if (min && max && min !== max) return `${fmt(min)} – ${fmt(max)}`;
-  if (max) return fmt(max);
-  if (min) return `from ${fmt(min)}`;
+  const suffix = unit === "hourly" ? " / hr" : "";
+  if (min && max && min !== max) return `${fmt(min)} – ${fmt(max)}${suffix}`;
+  if (max) return `${fmt(max)}${suffix}`;
+  if (min) return `from ${fmt(min)}${suffix}`;
   return "Negotiable";
 }
 
@@ -55,6 +56,7 @@ export const routes = {
   leads: () => "/l",
   leadNew: () => "/l/new",
   lead: (id: number, slug: string) => `/l/${id}/${slug}`,
+  leadSubmission: (id: number) => `/l/${id}`,
   modQueue: () => "/mod/queue",
   leaderboard: () => "/leaderboard",
   notifications: () => "/notifications",

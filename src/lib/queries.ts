@@ -2,6 +2,7 @@ import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { comments, follows, leads, posts, saves, spaceAliases, spaces, userAliases, users, votes, type Space, type User } from "@/db/schema";
 import { activePost, postSpaceAccess, type PostViewer } from "./post-access";
+import { isAcceptingBids, openPublicLead, publicLead } from "./lead-access";
 import { rankItems, type RankMode } from "./sorting";
 import { threadPreview } from "./thread-preview";
 import type { AuthorSummary, CommentNode, FeedLead, FeedPage, FeedPost, SearchResult } from "./types";
@@ -206,6 +207,7 @@ export async function listComments(postId: number, viewerId: number | null): Pro
 /* ------------------------------------------------------------------ */
 
 export interface ListLeadsOptions {
+  openOnly?: boolean;
   mode: RankMode;
   category?: string;
   kind?: string;
@@ -218,7 +220,7 @@ export interface ListLeadsOptions {
 
 export async function listLeads(opts: ListLeadsOptions): Promise<FeedPage<FeedLead>> {
   const limit = opts.limit ?? PAGE_SIZE;
-  const conditions = [eq(leads.isRemoved, false)];
+  const conditions = [opts.openOnly ? openPublicLead : publicLead];
   if (opts.category) conditions.push(eq(leads.category, opts.category));
   if (opts.kind === "bounty" || opts.kind === "contract" || opts.kind === "job") conditions.push(eq(leads.kind, opts.kind));
   if (opts.verifiedOnly) conditions.push(eq(leads.isVerified, true));
@@ -261,6 +263,9 @@ export async function listLeads(opts: ListLeadsOptions): Promise<FeedPage<FeedLe
       budgetMin: lead.budgetMin,
       budgetMax: lead.budgetMax,
       currency: lead.currency,
+      budgetUnit: lead.budgetUnit,
+      skillTags: lead.skillTags,
+      acceptingBids: isAcceptingBids(lead),
       location: lead.location,
       isVerified: lead.isVerified,
       isEscrowed: lead.isEscrowed,
@@ -287,7 +292,7 @@ export async function searchAll(q: string, viewer: PostViewer | null): Promise<S
   const [sp, us, ld, ps] = await Promise.all([
     db.select({ id: spaces.id, slug: spaces.slug, name: spaces.name, tagline: spaces.tagline }).from(spaces).where(or(ilike(spaces.slug, term), ilike(spaces.name, term))).limit(5),
     db.select({ id: users.id, username: users.username, displayName: users.displayName, headline: users.headline }).from(users).where(and(eq(users.isBanned, false), or(ilike(users.username, term), ilike(users.displayName, term)))).limit(5),
-    db.select({ id: leads.id, slug: leads.slug, title: leads.title, category: leads.category }).from(leads).where(and(eq(leads.isRemoved, false), ilike(leads.title, term))).limit(5),
+    db.select({ id: leads.id, slug: leads.slug, title: leads.title, category: leads.category }).from(leads).where(and(publicLead, ilike(leads.title, term))).limit(5),
     db.select({ id: posts.id, slug: posts.slug, title: posts.title, spaceSlug: spaces.slug }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(activePost, postSpaceAccess(viewer), ilike(posts.title, term))).limit(5),
   ]);
   return [

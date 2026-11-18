@@ -18,6 +18,7 @@ const TYPE_ICONS = {
   comment_reply: MessageSquare,
   solution_accepted: Award,
   lead_bid: Briefcase,
+  lead_review_decision: Briefcase,
   karma_milestone: Award,
   user_follow: UserPlus,
 };

@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { comments, leads, posts, reportReasonEnum, reports, reportTargetEnum, spaces } from "@/db/schema";
+import { comments, posts, reportReasonEnum, reports, reportTargetEnum, spaces } from "@/db/schema";
 import { handler, oneOf, readJson } from "@/lib/api";
 import { HttpError, requireUser } from "@/lib/auth";
+import { lockLead, publicLead } from "@/lib/lead-access";
 import { lockOpenPost, postSpaceAccess } from "@/lib/post-access";
 import { assertRateLimit } from "@/lib/services";
 
@@ -15,7 +16,7 @@ export const POST = handler(async (req: NextRequest) => {
   const targetType = oneOf(body.targetType, reportTargetEnum.enumValues, "targetType");
   const reason = oneOf(body.reason, reportReasonEnum.enumValues.filter((r) => r !== "automated_filter"), "reason");
   const targetId = Number(body.targetId);
-  if (!Number.isInteger(targetId)) throw new HttpError(400, "Invalid target");
+  if (!Number.isInteger(targetId) || targetId < 1 || targetId > 2_147_483_647) throw new HttpError(400, "Invalid target");
   const details = typeof body.details === "string" ? body.details.trim().slice(0, 1000) : "";
 
   await assertRateLimit(user.id, "report");
@@ -33,9 +34,8 @@ export const POST = handler(async (req: NextRequest) => {
       if (!c) throw new HttpError(404, "Comment not found");
       spaceId = c.spaceId;
     } else {
-      const [l] = await tx.select({ spaceId: leads.spaceId }).from(leads).where(eq(leads.id, targetId)).limit(1);
-      if (!l) throw new HttpError(404, "Lead not found");
-      spaceId = l.spaceId;
+      const lead = await lockLead(tx, targetId, publicLead);
+      spaceId = lead.spaceId;
     }
 
     const [created] = await tx.insert(reports).values({ reporterId: user.id, targetType, targetId, spaceId, reason, details }).returning({ id: reports.id });
