@@ -99,7 +99,7 @@ export function NotificationBell() {
           <div className="max-h-[380px] overflow-y-auto divide-y divide-line/60">
             {items.length === 0 ? (
               <div className="p-6 text-center text-[13px] text-ink-3">
-                You're all caught up! No notifications yet.
+                You&apos;re all caught up! No notifications yet.
               </div>
             ) : (
               items.map((n) => {

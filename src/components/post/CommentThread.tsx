@@ -11,6 +11,7 @@ import { useSession } from "@/components/providers";
 import { Avatar, VerifiedMark } from "@/components/primitives";
 import { ReportButton } from "@/components/shell/ReportModal";
 import { UserHoverCard } from "@/components/UserHoverCard";
+import { useWindowScrollMargin } from "@/components/useWindowScrollMargin";
 import { api, ClientError, queryKeys } from "@/lib/client";
 import type { CommentNode } from "@/lib/types";
 import { cn, routes, timeAgo } from "@/lib/utils";
@@ -189,7 +190,7 @@ const CommentRow = memo(function CommentRow({ node, canAccept, locked, postId, p
 export function CommentThread({ postId, postAuthorId, postHref, spaceId, canModerate, locked = false, initialCount, initialComments }: Props) {
   const user = useSession();
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const { listRef, scrollMargin } = useWindowScrollMargin();
   const { data, isPending, isError, refetch } = useQuery({
     queryKey: queryKeys.comments(postId),
     queryFn: () => api<{ items: CommentNode[] }>(`/api/posts/${postId}/comments`),
@@ -198,7 +199,7 @@ export function CommentThread({ postId, postAuthorId, postHref, spaceId, canMode
   const items = useMemo(() => data?.items ?? [], [data]);
   const canAccept = Boolean(!locked && user && (user.id === postAuthorId || canModerate));
 
-  const virtualizer = useWindowVirtualizer({ count: items.length, estimateSize: () => 140, overscan: 10, scrollMargin: listRef.current?.offsetTop ?? 0, initialRect: { width: 1024, height: 900 }, initialOffset: 0 });
+  const virtualizer = useWindowVirtualizer({ count: items.length, estimateSize: () => 140, overscan: 10, scrollMargin, initialRect: { width: 1024, height: 900 }, initialOffset: 0 });
   const setReply = useCallback((id: number | null) => setReplyingTo(id), []);
 
   useEffect(() => {

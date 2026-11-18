@@ -78,13 +78,9 @@ const BADGE_ICONS: Record<string, LucideIcon> = {
   "messages-square": MessagesSquare,
 };
 
-export function badgeIcon(icon: string): LucideIcon {
-  return BADGE_ICONS[icon] ?? Award;
-}
-
 /** Server-safe icon renderer (client component boundary). */
 export function BadgeIcon({ icon, size = 20 }: { icon: string; size?: number }) {
-  const Icon = badgeIcon(icon);
+  const Icon = BADGE_ICONS[icon] ?? Award;
   return <Icon size={size} />;
 }
 
@@ -95,7 +91,7 @@ const TIER_CLASS: Record<number, string> = {
 };
 
 export const BadgeChip = memo(function BadgeChip({ icon, name, tier, locked, className }: { icon: string; name: string; tier: number; locked?: boolean; className?: string }) {
-  const Icon = badgeIcon(icon);
+  const Icon = BADGE_ICONS[icon] ?? Award;
   return (
     <span className={cn(TIER_CLASS[tier] ?? "tag", locked && "opacity-45 grayscale", className)} title={name}>
       <Icon size={11} strokeWidth={2.4} />

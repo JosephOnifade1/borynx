@@ -5,14 +5,15 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { CheckCircle2, ExternalLink, MessageSquare, Pin } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { FeedSkeleton, PostRowSkeleton, VerifiedMark } from "@/components/primitives";
 import { ReportButton } from "@/components/shell/ReportModal";
 import { UserHoverCard } from "@/components/UserHoverCard";
+import { useWindowScrollMargin } from "@/components/useWindowScrollMargin";
 import { api, queryKeys } from "@/lib/client";
 import { POST_KIND_LABEL } from "@/lib/constants";
-import { isRankMode, type RankMode } from "@/lib/sorting";
+import type { RankMode } from "@/lib/sorting";
 import type { FeedPage, FeedPost } from "@/lib/types";
 import { cn, routes, timeAgo } from "@/lib/utils";
 import { CreatePostBox } from "./CreatePostBox";
@@ -162,13 +163,7 @@ export function PostFeed({
   const router = useRouter();
   const [mode, setMode] = useState<RankMode>(initialMode);
   const [focusIndex, setFocusIndex] = useState(-1);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const sp = new URLSearchParams(window.location.search).get("sort");
-    if (isRankMode(sp)) setMode(sp);
-  }, []);
+  const { listRef, scrollMargin } = useWindowScrollMargin();
 
   const params = useMemo(
     () => ({
@@ -205,7 +200,7 @@ export function PostFeed({
     count: items.length + (query.hasNextPage ? 1 : 0),
     estimateSize: () => 170,
     overscan: 8,
-    scrollMargin: listRef.current?.offsetTop ?? 0,
+    scrollMargin,
     initialRect: { width: 680, height: 900 },
     initialOffset: 0,
   });

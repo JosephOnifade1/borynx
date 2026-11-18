@@ -4,11 +4,12 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { Lock, MapPin, ShieldCheck, Users } from "lucide-react";
 import Link from "next/link";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { LeadRowSkeleton, VerifiedMark } from "@/components/primitives";
 import { ReportButton } from "@/components/shell/ReportModal";
 import { UserHoverCard } from "@/components/UserHoverCard";
+import { useWindowScrollMargin } from "@/components/useWindowScrollMargin";
 import { api, queryKeys } from "@/lib/client";
 import { LEAD_CATEGORIES, LEAD_KIND_LABEL } from "@/lib/constants";
 import { RANK_MODES, type RankMode } from "@/lib/sorting";
@@ -97,7 +98,7 @@ export function LeadFeed({ initialPage, author }: { initialPage?: FeedPage<FeedL
   const [category, setCategory] = useState<string>("");
   const [kind, setKind] = useState<string>("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
+  const { listRef, scrollMargin } = useWindowScrollMargin();
 
   const params = useMemo(
     () => ({ sort: mode, category: category || undefined, kind: kind || undefined, verified: verifiedOnly ? "1" : undefined, author }),
@@ -123,7 +124,7 @@ export function LeadFeed({ initialPage, author }: { initialPage?: FeedPage<FeedL
     count: items.length + (query.hasNextPage ? 1 : 0),
     estimateSize: () => 190,
     overscan: 6,
-    scrollMargin: listRef.current?.offsetTop ?? 0,
+    scrollMargin,
     initialRect: { width: 680, height: 900 },
     initialOffset: 0,
   });

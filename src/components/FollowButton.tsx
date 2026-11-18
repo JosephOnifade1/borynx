@@ -35,8 +35,7 @@ export const FollowButton = memo(function FollowButton({
   const qc = useQueryClient();
   const [hovering, setHovering] = useState(false);
 
-  // If viewing self, don't show follow button
-  if (viewer?.username === username) return null;
+  const viewingSelf = viewer?.username === username;
 
   const { data } = useQuery({
     queryKey: queryKeys.userFollow(username),
@@ -49,6 +48,7 @@ export const FollowButton = memo(function FollowButton({
           }
         : undefined,
     staleTime: 30_000,
+    enabled: !viewingSelf,
   });
 
   const following = data?.following ?? false;
@@ -88,6 +88,7 @@ export const FollowButton = memo(function FollowButton({
     mutation.mutate();
   };
 
+  if (viewingSelf) return null;
   const isSm = size === "sm";
 
   return (
