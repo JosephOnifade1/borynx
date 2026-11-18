@@ -65,7 +65,14 @@ export const users = pgTable(
     id: serial("id").primaryKey(),
     username: varchar("username", { length: 32 }).notNull(),
     displayName: varchar("display_name", { length: 80 }).notNull(),
+    lookingToHire: boolean("looking_to_hire").default(false).notNull(),
+    availableForWork: boolean("available_for_work").default(false).notNull(),
     companyName: varchar("company_name", { length: 100 }),
+    // Intake may prefill companyName privately. Only an explicit profile edit opts in to display.
+    companyNamePublic: boolean("company_name_public").default(false).notNull(),
+    companyUrl: varchar("company_url", { length: 255 }),
+    hourlyRate: integer("hourly_rate"),
+    hourlyCurrency: varchar("hourly_currency", { length: 3 }),
     headline: varchar("headline", { length: 140 }).default("").notNull(),
     bio: text("bio").default("").notNull(),
     avatarHue: integer("avatar_hue").default(20).notNull(),
@@ -82,7 +89,12 @@ export const users = pgTable(
     banReason: text("ban_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [uniqueIndex("users_username_idx").on(t.username)],
+  (t) => [
+    uniqueIndex("users_username_idx").on(t.username),
+    check("users_hourly_rate_pair", sql`(${t.hourlyRate} is null and ${t.hourlyCurrency} is null) or
+      (${t.hourlyRate} is not null and ${t.hourlyCurrency} is not null and ${t.hourlyRate} between 1 and 10000000 and ${t.hourlyCurrency} in ('USD', 'EUR', 'GBP'))`),
+    check("users_public_company_name_set", sql`not ${t.companyNamePublic} or (${t.companyName} is not null and length(trim(${t.companyName})) > 0)`),
+  ],
 );
 
 /** Provider is scoped to the exact Supabase Auth origin, never to an email or a handle. */
@@ -308,6 +320,7 @@ export const leads = pgTable(
     index("leads_created_idx").on(t.createdAt),
     index("leads_category_idx").on(t.category),
     index("leads_publication_created_idx").on(t.publicationStatus, t.createdAt),
+    index("leads_public_author_idx").on(t.authorId).where(sql`${t.publicationStatus} = 'published' and ${t.isRemoved} = false`),
     uniqueIndex("leads_author_submission_idx").on(t.authorId, t.submissionKey).where(sql`${t.submissionKey} is not null`),
     check("leads_skill_tags_max", sql`cardinality(${t.skillTags}) <= 6`),
     check("leads_revision_positive", sql`${t.revision} >= 1`),

@@ -2,7 +2,6 @@ import { desc, eq } from "drizzle-orm";
 import type { ReactNode } from "react";
 import { db } from "@/db";
 import { memberships, spaces } from "@/db/schema";
-import type { User } from "@/db/schema";
 import { RegionErrorBoundary } from "@/components/primitives";
 import { CommandPalette } from "./CommandPalette";
 import { Header } from "./Header";
@@ -10,8 +9,8 @@ import { ReportModal } from "./ReportModal";
 import { Sidebar, type SidebarSpace } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 
-async function loadSidebarSpaces(user: User | null): Promise<SidebarSpace[]> {
-  if (!user) {
+async function loadSidebarSpaces(userId: number | null): Promise<SidebarSpace[]> {
+  if (userId === null) {
     const rows = await db.select({ slug: spaces.slug, name: spaces.name, accentHue: spaces.accentHue }).from(spaces).orderBy(desc(spaces.memberCount)).limit(6);
     return rows.map((r) => ({ ...r, modRole: null }));
   }
@@ -19,13 +18,13 @@ async function loadSidebarSpaces(user: User | null): Promise<SidebarSpace[]> {
     .select({ slug: spaces.slug, name: spaces.name, accentHue: spaces.accentHue, modRole: memberships.modRole })
     .from(memberships)
     .innerJoin(spaces, eq(spaces.id, memberships.spaceId))
-    .where(eq(memberships.userId, user.id))
+    .where(eq(memberships.userId, userId))
     .orderBy(spaces.slug);
   return rows;
 }
 
-export async function AppShell({ user, children }: { user: User | null; children: ReactNode }) {
-  const sidebarSpaces = await loadSidebarSpaces(user);
+export async function AppShell({ userId, children }: { userId: number | null; children: ReactNode }) {
+  const sidebarSpaces = await loadSidebarSpaces(userId);
   return (
     <>
       <RegionErrorBoundary region="header" compact>

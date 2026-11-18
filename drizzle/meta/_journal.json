@@ -64,6 +64,13 @@
       "when": 1795014369226,
       "tag": "0008_verified_email_intake",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795031789823,
+      "tag": "0009_adaptive_profile_settings",
+      "breakpoints": true
     }
   ]
 }

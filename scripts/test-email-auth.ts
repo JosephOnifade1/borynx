@@ -201,6 +201,25 @@ async function runEmailStaging(pool: Pool, url: string, directory: string) {
     assert.doesNotMatch(await load(`/api/users/${publicAccount.username}`).then((r) => r.text()), /Private Pilot Company|buyer@example\.test|"subject"/);
     const [saved] = (await pool.query("select company_name, display_name from public.users where id = $1", [publicAccount.id])).rows;
     assert.deepEqual(saved, { company_name: body.companyName, display_name: body.displayName });
+    // The account can opt into hiring without publishing an intake-only company name.
+    const intent = await request("/api/me", { method: "PATCH", body: JSON.stringify({ lookingToHire: true }), headers: {
+      Origin: ORIGIN, Cookie: buyerSession, "Content-Type": "application/json",
+    } });
+    assert.equal(intent.status, 200);
+    const intentAccount = (await intent.json()).user;
+    assert.equal(intentAccount.lookingToHire, true);
+    assert.equal(intentAccount.companyName, null);
+    const profileHref = `/f/${publicAccount.username}`;
+    const visitorProfile = await load(profileHref).then((r) => r.text());
+    assert.match(visitorProfile, /Open to hiring/);
+    for (const path of [profileHref, "/settings"]) {
+      const ownerPage = await load(path, buyerSession);
+      assert.equal(ownerPage.status, 200);
+      const markup = await ownerPage.text();
+      assert.match(markup, /Edit Profile/);
+      assert.doesNotMatch(markup, /Private Pilot Company|buyer@example\.test|synthetic-refresh|synthetic-access/);
+    }
+    assert.doesNotMatch(visitorProfile, /Private Pilot Company|buyer@example\.test/);
     const sessionRow = (await pool.query("select id, intake_id, auth_identity_id from public.sessions where user_id = $1", [publicAccount.id])).rows[0];
     assert.equal(sessionRow.id, hash(buyerSession.slice(EMAIL_SESSION_COOKIE.length + 1)));
     assert.equal(sessionRow.intake_id, intake.id);

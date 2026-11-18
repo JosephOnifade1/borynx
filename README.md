@@ -14,7 +14,7 @@ Borynx is built specifically for tech freelancers (Engineering, Design, DevOps, 
 - **Leads Marketplace (`/l`):** Contracts, bounties, and roles with budget tracking, verified trust signals, pitch submissions, and award workflows.
 - **Practitioner Leaderboard (`/leaderboard`):** Community ranking based on earned karma, accepted solutions, and peer follows.
 - **Notification Engine (`/notifications`):** In-app real-time notifications for replies, solution acceptance, lead bids, and new followers.
-- **Freelancer Profiles (`/f/:username`):** Identity showcases featuring achievement badges, verified marks, karma balances, skills, and portfolio links.
+- **Adaptive Profiles (`/f/:username`):** One account can show hiring activity, freelance availability and rates, or both, alongside skills and reputation.
 - **Command Palette (<kbd>Cmd+K</kbd> / <kbd>Ctrl+K</kbd>):** Instant keyboard navigation across communities, threads, leads, and settings.
 
 ---
@@ -84,7 +84,8 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 | `npm run typecheck` | Run TypeScript compiler validation |
 | `npm run lint` | Run ESLint |
 | `npm test` | Run Vitest unit tests |
-| `npm run test:db` | Test migrations, demo sign-in, marketplace and thread actions, and staged email intake on disposable services |
+| `npm run test:db` | Test migrations, demo sign-in, marketplace and thread actions, profile settings, and staged email intake on disposable services |
+| `npm run test:db -- --profiles-only` | Verify adaptive profiles and privacy on an upgraded disposable database |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
 | `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
 | `npm run db:prune-email` | Scrub expired intake content and prune receipts, send reservations and sessions on the explicitly configured database |

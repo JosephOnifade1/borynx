@@ -21,7 +21,8 @@ export const GET = handler(async (_req: NextRequest, { params }) => {
   const [badgeRows, [p], [s], [f], isFollowingRow] = await Promise.all([
     getUserBadges(user.id),
     db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, user.id), activePost, postSpaceAccess(viewer))),
-    db.select({ c: count() }).from(comments).where(and(eq(comments.authorId, user.id), eq(comments.isSolution, true))),
+    db.select({ c: count() }).from(comments).innerJoin(posts, eq(posts.id, comments.postId)).innerJoin(spaces, eq(spaces.id, posts.spaceId))
+      .where(and(eq(comments.authorId, user.id), eq(comments.isSolution, true), eq(comments.isRemoved, false), activePost, postSpaceAccess(viewer))),
     db.select({ c: count() }).from(follows).where(eq(follows.followingId, user.id)),
     viewer
       ? db
@@ -39,5 +40,5 @@ export const GET = handler(async (_req: NextRequest, { params }) => {
     followerCount: f.c,
     isFollowing: isFollowingRow.length > 0,
   };
-  return Response.json(payload, { headers: { "Cache-Control": "private, max-age=15" } });
+  return Response.json(payload, { headers: { "Cache-Control": "private, no-store" } });
 });

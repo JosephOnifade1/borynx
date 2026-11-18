@@ -7,14 +7,11 @@ import { useCallback, useRef, useState } from "react";
 import { Avatar } from "@/components/primitives";
 import { Dialog } from "@/components/shell/Dialog";
 import { api, ClientError, queryKeys } from "@/lib/client";
-import type { User } from "@/db/schema";
+import type { EditableProfile } from "@/lib/profile-input";
 import { useUiStore } from "@/store/ui";
+import { ProfileIntentFields, profileIntentForm } from "./ProfileIntentFields";
 
-interface EditProfileModalProps {
-  user: User;
-}
-
-export function EditProfileModal({ user }: EditProfileModalProps) {
+export function EditProfileModal({ user }: { user: EditableProfile }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const qc = useQueryClient();
@@ -30,6 +27,7 @@ export function EditProfileModal({ user }: EditProfileModalProps) {
   const [githubUrl, setGithubUrl] = useState(user.githubUrl ?? "");
   const [portfolioUrl, setPortfolioUrl] = useState(user.portfolioUrl ?? "");
   const [avatarHue, setAvatarHue] = useState(user.avatarHue);
+  const [intent, setIntent] = useState(() => profileIntentForm(user));
 
   const handleOpen = () => {
     // Sync with latest user data on open
@@ -41,6 +39,8 @@ export function EditProfileModal({ user }: EditProfileModalProps) {
     setGithubUrl(user.githubUrl ?? "");
     setPortfolioUrl(user.portfolioUrl ?? "");
     setAvatarHue(user.avatarHue);
+    setIntent(profileIntentForm(user));
+    mutation.reset();
     setOpen(true);
   };
 
@@ -68,19 +68,7 @@ export function EditProfileModal({ user }: EditProfileModalProps) {
   };
 
   const mutation = useMutation({
-    mutationFn: () =>
-      api<{ ok: boolean; user: Partial<User> }>("/api/me", {
-        method: "PATCH",
-        json: {
-          displayName,
-          headline,
-          bio,
-          skills,
-          githubUrl: githubUrl || null,
-          portfolioUrl: portfolioUrl || null,
-          avatarHue,
-        },
-      }),
+    mutationFn: (patch: Record<string, unknown>) => api<{ ok: boolean }>("/api/me", { method: "PATCH", json: patch }),
     onSuccess: () => {
       notify("Profile updated successfully", "success");
       qc.invalidateQueries({ queryKey: queryKeys.user(user.username) });
@@ -94,8 +82,28 @@ export function EditProfileModal({ user }: EditProfileModalProps) {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!displayName.trim()) return notify("Display name is required", "error");
-    mutation.mutate();
+    if (mutation.isPending) return;
+    const saved = profileIntentForm(user);
+    const patch = {
+      ...(displayName !== user.displayName && { displayName }),
+      ...(headline !== user.headline && { headline }),
+      ...(bio !== user.bio && { bio }),
+      ...(skills !== user.skills && { skills }),
+      ...(avatarHue !== user.avatarHue && { avatarHue }),
+      ...(githubUrl !== (user.githubUrl ?? "") && { githubUrl: githubUrl.trim() || null }),
+      ...(portfolioUrl !== (user.portfolioUrl ?? "") && { portfolioUrl: portfolioUrl.trim() || null }),
+      ...(intent.lookingToHire !== saved.lookingToHire && { lookingToHire: intent.lookingToHire }),
+      ...(intent.availableForWork !== saved.availableForWork && { availableForWork: intent.availableForWork }),
+      // A disabled intent keeps its saved details, not any unsaved edits to hidden fields.
+      ...(intent.lookingToHire && intent.companyName !== saved.companyName && { companyName: intent.companyName.trim() || null }),
+      ...(intent.lookingToHire && intent.companyUrl !== saved.companyUrl && { companyUrl: intent.companyUrl.trim() || null }),
+      ...(intent.availableForWork && (intent.hourlyRate !== saved.hourlyRate || intent.hourlyCurrency !== saved.hourlyCurrency) && {
+        hourlyRate: intent.hourlyRate ? Number(intent.hourlyRate) : null,
+        hourlyCurrency: intent.hourlyRate ? intent.hourlyCurrency : null,
+      }),
+    };
+    if (!Object.keys(patch).length) return handleClose();
+    mutation.mutate(patch);
   };
 
   return (
@@ -113,12 +121,14 @@ export function EditProfileModal({ user }: EditProfileModalProps) {
         onClose={handleClose}
         initialFocusRef={nameInputRef}
         title="Edit Profile"
-        description="Update your practitioner identity, skills, and portfolio links."
+        description="Update the details and marketplace signals on your public profile."
         className="max-w-lg"
       >
-        <form onSubmit={onSubmit} className="flex flex-col min-h-0 flex-1 overflow-hidden">
+        <form method="post" onSubmit={onSubmit} className="flex flex-col min-h-0 flex-1 overflow-hidden">
           {/* Scrollable Form Content */}
           <div className="overflow-y-auto px-5 py-4 space-y-4 flex-1">
+            <ProfileIntentFields value={intent} onChange={setIntent} errors={mutation.error instanceof ClientError ? mutation.error.fields : undefined} />
+
             {/* Avatar Hue Picker */}
             <div className="flex items-center gap-4 rounded-md border border-line bg-sunken p-3">
               <Avatar hue={avatarHue} name={displayName || user.username} size={48} />
@@ -278,6 +288,7 @@ export function EditProfileModal({ user }: EditProfileModalProps) {
             </div>
           </div>
 
+          {mutation.isError && <p role="alert" className="hairline-t shrink-0 px-5 pt-2 text-[12.5px] text-danger">{mutation.error.message}</p>}
           {/* Sticky Dialog Footer */}
           <div className="hairline-t flex items-center justify-end gap-2 px-5 py-3 bg-sunken/40 shrink-0">
             <button

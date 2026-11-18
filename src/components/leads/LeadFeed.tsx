@@ -109,7 +109,7 @@ export function LeadFeed({ initialPage, author }: { initialPage?: FeedPage<FeedL
       if (category) qs.set("category", category);
       if (kind) qs.set("kind", kind);
       if (verifiedOnly) qs.set("verified", "1");
-      if (author) { qs.set("author", author); qs.set("active", "1"); }
+      if (author) qs.set("author", author);
       return api<FeedPage<FeedLead>>(`/api/leads?${qs.toString()}`);
     },
     initialPageParam: 0,
@@ -178,7 +178,7 @@ export function LeadFeed({ initialPage, author }: { initialPage?: FeedPage<FeedL
       {query.isSuccess && items.length === 0 && (
         <div className="panel rounded-lg px-6 py-14 text-center">
           <p className="display text-[16px]">No leads match these filters</p>
-          <p className="mt-1 text-[13px] text-ink-3">Loosen a filter or post the first one.</p>
+          <p className="mt-1 text-[13px] text-ink-3">{author ? "Only public listings from this profile appear here." : "Loosen a filter or post the first one."}</p>
         </div>
       )}
       {items.length > 0 && (
