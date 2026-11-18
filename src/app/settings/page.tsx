@@ -104,6 +104,14 @@ export default async function SettingsPage() {
             ))}
           </dl>
         </section>
+
+        <section className="panel flex flex-wrap items-center justify-between gap-3 rounded-lg p-5" aria-labelledby="portfolio-settings-heading">
+          <div>
+            <h2 id="portfolio-settings-heading" className="display text-[18px]">Portfolio projects</h2>
+            <p className="mt-0.5 text-[13px] text-ink-3">Add up to six work samples. Drafts stay private until you publish them.</p>
+          </div>
+          <Link href={routes.settingsProjects()} className="btn btn-sm">Manage projects</Link>
+        </section>
       </div>
     </PageFrame>
   );

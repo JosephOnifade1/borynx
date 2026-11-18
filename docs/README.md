@@ -32,7 +32,8 @@ This directory contains architectural specifications, implementation blueprints,
 - [Phase 1 lead submission and review](./MARKETPLACE_PHASE_1.md) — Disposable demo walkthrough, confirmed budget and backfill policies, and rollout precautions.
 - [Phase 2 private pitches, awards, and completion](./MARKETPLACE_PHASE_2.md) — Walkthrough, transition rules, and legacy bid reconciliation.
 - [Phase 3 verified email intake](./MARKETPLACE_PHASE_3.md) — Local provider-double rehearsal and gates for hosted staging.
-- [Phase 4 adaptive profiles](./MARKETPLACE_PHASE_4.md) — Independent hiring and availability settings, public lead counts, and the portfolio follow-up.
+- [Phase 4 adaptive profiles](./MARKETPLACE_PHASE_4.md) — Independent hiring and availability settings and public lead counts.
+- [Phase 4 portfolio projects](./MARKETPLACE_PHASE_4_PROJECTS.md) — Owner drafts, ordered public work samples, gated covers, and moderation.
 - [Local database runbook](./LOCAL_DATABASE.md) — Phase 0 setup, migration checks, and demo sign-in safeguards.
 
 ---

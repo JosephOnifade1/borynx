@@ -10,12 +10,14 @@ import { EditProfileModal } from "@/components/profile/EditProfileModal";
 import { ProfileSignals } from "@/components/profile/ProfileSignals";
 import { PostFeed } from "@/components/feed/PostFeed";
 import { LeadFeed } from "@/components/leads/LeadFeed";
+import { ProfileProjects } from "@/components/portfolio/ProfileProjects";
 import { UserDiscipline } from "@/components/mod/ModActions";
 import { PageFrame, Widget } from "@/components/PageFrame";
 import { Avatar, BadgeChip, VerifiedMark } from "@/components/primitives";
-import { getCurrentUser, isSiteStaff } from "@/lib/auth";
+import { getCurrentUser, isSiteStaff, isSuspended } from "@/lib/auth";
 import { activePost, postSpaceAccess } from "@/lib/post-access";
 import { toEditableProfile, toProfilePreferences } from "@/lib/profile-input";
+import { countPublicProjects, listPublicProjects } from "@/lib/portfolio";
 import { getPublicHiringCounts } from "@/lib/profile-leads";
 import { listLeads, listPosts, resolveUser } from "@/lib/queries";
 import { isRankMode } from "@/lib/sorting";
@@ -24,9 +26,9 @@ import type { FeedLead, FeedPage, FeedPost } from "@/lib/types";
 import { cn, routes, timeAgo } from "@/lib/utils";
 
 type Params = Promise<{ username: string }>;
-type Tab = "posts" | "solved" | "leads";
+type Tab = "posts" | "solved" | "leads" | "projects";
 
-const TAB_LABELS: Record<Tab, string> = { posts: "Threads", solved: "Solved", leads: "Leads" };
+const TAB_LABELS: Record<Tab, string> = { posts: "Threads", solved: "Solved", leads: "Leads", projects: "Projects" };
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   try {
@@ -49,13 +51,13 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
   const mode = isRankMode(sort) ? sort : "new";
   const resolved = await resolveUser(username);
   if (!resolved) notFound();
-  if (!resolved.canonical) permanentRedirect(routes.profile(resolved.user.username));
+  if (!resolved.canonical) permanentRedirect(tabParam === "projects" ? routes.profileProjects(resolved.user.username) : routes.profile(resolved.user.username));
   const profile = resolved.user;
   const viewer = await getCurrentUser();
   const isSelf = viewer?.id === profile.id;
   const staff = viewer ? isSiteStaff(viewer) : false;
 
-  const [badgeList, [threads], [solvedThreads], [solutions], hiring, [followers], isFollowingRow] = await Promise.all([
+  const [badgeList, [threads], [solvedThreads], [solutions], hiring, [followers], isFollowingRow, projectItems, projectCount] = await Promise.all([
     getUserBadges(profile.id),
     db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, profile.id), activePost, postSpaceAccess(viewer))),
     db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, profile.id), activePost, postSpaceAccess(viewer), eq(posts.isSolved, true))),
@@ -70,14 +72,16 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
           .where(and(eq(follows.followerId, viewer.id), eq(follows.followingId, profile.id)))
           .limit(1)
       : Promise.resolve([]),
+    tabParam === "projects" ? listPublicProjects(profile.id) : null,
+    tabParam === "projects" ? null : countPublicProjects(profile.id),
   ]);
 
   const hiringFocus = !profile.availableForWork && (profile.lookingToHire || hiring.accepting > 0);
-  const tabs: Tab[] = hiringFocus ? ["leads", "posts", "solved"] : ["posts", "solved", "leads"];
-  const tab: Tab = tabParam === "posts" || tabParam === "solved" || tabParam === "leads" ? tabParam : tabs[0];
-  const counts: Record<Tab, number> = { posts: threads.c, solved: solvedThreads.c, leads: hiring.published };
+  const tabs: Tab[] = hiringFocus ? ["leads", "posts", "solved", "projects"] : ["posts", "projects", "solved", "leads"];
+  const tab: Tab = tabParam === "posts" || tabParam === "solved" || tabParam === "leads" || tabParam === "projects" ? tabParam : tabs[0];
+  const counts: Record<Tab, number> = { posts: threads.c, solved: solvedThreads.c, leads: hiring.published, projects: projectItems?.length ?? projectCount ?? 0 };
   const leadPage: FeedPage<FeedLead> | null = tab === "leads" ? await listLeads({ mode: "new", authorId: profile.id, viewerId: viewer?.id ?? null }) : null;
-  const postPage: FeedPage<FeedPost> | null = tab !== "leads" ? await listPosts({ mode, authorId: profile.id, solvedOnly: tab === "solved", viewer }) : null;
+  const postPage: FeedPage<FeedPost> | null = tab === "posts" || tab === "solved" ? await listPosts({ mode, authorId: profile.id, solvedOnly: tab === "solved", viewer }) : null;
   const hue = profile.avatarHue;
   const base = routes.profile(profile.username);
   const profileStats: [string, number][] = hiringFocus
@@ -189,7 +193,7 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
         </section>
       }
     >
-      <nav aria-label="Profile activity" className="panel mb-3 flex items-center gap-1 rounded-lg px-2">
+      <nav aria-label="Profile activity" className="panel mb-3 flex flex-wrap items-center gap-x-1 rounded-lg px-2">
         {tabs.map((id) => {
           const active = tab === id;
           return (
@@ -197,7 +201,7 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
               key={id}
               href={id === "posts" && !hiringFocus ? base : `${base}?tab=${id}`}
               aria-current={active ? "page" : undefined}
-              className={cn("relative flex h-10 items-center gap-1.5 px-3 text-[13px] font-semibold transition-colors", active ? "text-ink" : "text-ink-3 hover:text-ink")}
+              className={cn("relative flex h-10 items-center gap-1.5 px-2 text-[13px] font-semibold transition-colors sm:px-3", active ? "text-ink" : "text-ink-3 hover:text-ink")}
             >
               {TAB_LABELS[id]}
               <span className="num text-[11px] font-normal text-ink-3">{counts[id]}</span>
@@ -207,7 +211,9 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
         })}
       </nav>
 
-      {leadPage ? (
+      {projectItems ? (
+        <ProfileProjects projects={projectItems} owner={isSelf} canModerate={Boolean(viewer && staff && !isSelf && !isSuspended(viewer))} />
+      ) : leadPage ? (
         <LeadFeed author={profile.username} initialPage={leadPage} />
       ) : (
         postPage && (
