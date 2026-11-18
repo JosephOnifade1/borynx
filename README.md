@@ -61,7 +61,7 @@ npm run build
 npm run test:db          # temporary PostgreSQL + HTTP integration tests
 ```
 
-Stop the dev app before running `test:db` so its Next.js dev build directory is free. The suite starts its own database and app; no credential or database argument is needed. See the [local database runbook](./docs/LOCAL_DATABASE.md) for ledger validation, upgrade coverage, and the demo-mode boundary. The [marketplace walkthrough](./docs/MARKETPLACE_PHASE_2.md) covers drafting, review, private pitches, one award, and recorded completion.
+Stop the dev app before running `test:db` so its Next.js dev build directory is free. The suite uses `openssl` and starts its own database, app, and HTTPS email-provider double; no real project or credential is needed. See the [local database runbook](./docs/LOCAL_DATABASE.md) for ledger validation, upgrade coverage, and the demo-mode boundary. The [marketplace walkthrough](./docs/MARKETPLACE_PHASE_2.md) covers drafting, review, private pitches, one award, and recorded completion. [Verified email intake](./docs/MARKETPLACE_PHASE_3.md) is off by default and must be rehearsed on approved staging before any real mail or outside submissions.
 
 ---
 
@@ -86,9 +86,10 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 | `npm run typecheck` | Run TypeScript compiler validation |
 | `npm run lint` | Run ESLint |
 | `npm test` | Run Vitest unit tests |
-| `npm run test:db` | Test fresh and legacy migrations, demo gating, and marketplace and thread actions on disposable PostgreSQL |
+| `npm run test:db` | Test migrations, demo sign-in, marketplace and thread actions, and staged email intake on disposable services |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
 | `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
+| `npm run db:prune-email` | Scrub expired intake content and prune receipts, send reservations and sessions on the explicitly configured database |
 | `npx drizzle-kit studio` | Launch local visual database browser |
 
 ---

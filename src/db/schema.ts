@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgEnum,
+  pgSchema,
   pgTable,
   primaryKey,
   serial,
@@ -15,6 +16,9 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { LeadFields } from "@/lib/lead-input";
+
+export const privateSchema = pgSchema("borynx_private");
 
 /* ------------------------------------------------------------------ */
 /* Enums                                                               */
@@ -61,6 +65,7 @@ export const users = pgTable(
     id: serial("id").primaryKey(),
     username: varchar("username", { length: 32 }).notNull(),
     displayName: varchar("display_name", { length: 80 }).notNull(),
+    companyName: varchar("company_name", { length: 100 }),
     headline: varchar("headline", { length: 140 }).default("").notNull(),
     bio: text("bio").default("").notNull(),
     avatarHue: integer("avatar_hue").default(20).notNull(),
@@ -80,11 +85,20 @@ export const users = pgTable(
   (t) => [uniqueIndex("users_username_idx").on(t.username)],
 );
 
-/**
- * Opaque session tokens. Only the SHA-256 of a token is stored, so a database leak can't be
- * replayed. Tokens travel as an HttpOnly cookie, or as the `x-bx-session` header in embedded
- * previews whose browsers refuse third-party cookies.
- */
+/** Provider is scoped to the exact Supabase Auth origin, never to an email or a handle. */
+export const authIdentities = privateSchema.table("auth_identities", {
+  id: serial("id").primaryKey(),
+  provider: varchar("provider", { length: 255 }).notNull(),
+  subject: uuid("subject").notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  email: varchar("email", { length: 254 }).notNull(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  uniqueIndex("auth_identities_provider_subject_idx").on(t.provider, t.subject),
+  index("auth_identities_user_idx").on(t.userId),
+]).enableRLS();
+
+/** Opaque hashed tokens; only legacy/demo rows have no managed identity. */
 export const sessions = pgTable(
   "sessions",
   {
@@ -92,13 +106,21 @@ export const sessions = pgTable(
     userId: integer("user_id")
       .references(() => users.id, { onDelete: "cascade" })
       .notNull(),
+    authIdentityId: integer("auth_identity_id").references(() => authIdentities.id, { onDelete: "cascade" }),
+    // Exact intake bound at login. The receipt has its own shorter retention lifecycle.
+    intakeId: uuid("intake_id"),
     userAgent: varchar("user_agent", { length: 255 }).default("").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
-  (t) => [index("sessions_user_idx").on(t.userId), index("sessions_expires_idx").on(t.expiresAt)],
-);
+  (t) => [
+    index("sessions_user_idx").on(t.userId),
+    index("sessions_expires_idx").on(t.expiresAt),
+    index("sessions_identity_idx").on(t.authIdentityId),
+    check("sessions_intake_requires_identity", sql`${t.intakeId} is null or ${t.authIdentityId} is not null`),
+  ],
+).enableRLS();
 
 /** Legacy usernames → canonical user (handles renames / stale links). */
 export const userAliases = pgTable(
@@ -291,6 +313,41 @@ export const leads = pgTable(
     check("leads_revision_positive", sql`${t.revision} >= 1`),
   ],
 );
+
+/** Unowned, short-lived drafts are separate from marketplace leads and queues. */
+export const leadIntakes = privateSchema.table("lead_intakes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  emailHash: varchar("email_hash", { length: 64 }).notNull(),
+  ipHash: varchar("ip_hash", { length: 64 }).notNull(),
+  submissionKey: uuid("submission_key").notNull(),
+  brief: jsonb("brief").$type<LeadFields>(),
+  displayName: varchar("display_name", { length: 80 }),
+  companyName: varchar("company_name", { length: 100 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+}, (t) => [
+  uniqueIndex("lead_intakes_email_submission_idx").on(t.emailHash, t.submissionKey),
+  index("lead_intakes_ip_created_idx").on(t.ipHash, t.createdAt),
+  index("lead_intakes_expiry_idx").on(t.expiresAt),
+  index("lead_intakes_lead_idx").on(t.leadId),
+  check("lead_intakes_expiry_after_creation", sql`${t.expiresAt} > ${t.createdAt}`),
+  check("lead_intakes_consumed_only", sql`${t.leadId} is null or ${t.consumedAt} is not null`),
+  check("lead_intakes_scrubbed_on_consumption", sql`${t.consumedAt} is null or (${t.brief} is null and ${t.displayName} is null and ${t.companyName} is null)`),
+]).enableRLS();
+
+/** Only keyed fingerprints and dates; reserve a send before calling the provider. */
+export const emailAuthSends = privateSchema.table("email_auth_sends", {
+  id: serial("id").primaryKey(),
+  emailHash: varchar("email_hash", { length: 64 }).notNull(),
+  ipHash: varchar("ip_hash", { length: 64 }).notNull(),
+  attemptedAt: timestamp("attempted_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("email_auth_sends_email_idx").on(t.emailHash, t.attemptedAt),
+  index("email_auth_sends_ip_idx").on(t.ipHash, t.attemptedAt),
+  index("email_auth_sends_time_idx").on(t.attemptedAt),
+]).enableRLS();
 
 export const leadBids = pgTable(
   "lead_bids",

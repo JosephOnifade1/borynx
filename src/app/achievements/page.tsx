@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { VerifyForm } from "@/components/forms";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { BadgeChip, BadgeIcon, VerifiedMark } from "@/components/primitives";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, getDemoAccountMode } from "@/lib/auth";
 import { BADGE_DEFINITIONS, badgeProgress } from "@/lib/badges";
 import { evaluateBadges, getUserBadges, loadBadgeStats } from "@/lib/services";
 import { routes, timeAgo } from "@/lib/utils";
@@ -15,6 +15,7 @@ const CATEGORY_LABEL = { identity: "Identity & trust", milestone: "Milestones", 
 export default async function AchievementsPage() {
   const user = await getCurrentUser();
   if (!user) redirect(`${routes.login()}?next=${routes.achievements()}`);
+  const demo = (await getDemoAccountMode()) !== "disabled";
   // Re-evaluate on view so anything earned out-of-band (e.g. karma threshold crossed) is granted.
   await evaluateBadges(user.id);
   const [stats, earned] = await Promise.all([loadBadgeStats(user.id), getUserBadges(user.id)]);
@@ -56,8 +57,8 @@ export default async function AchievementsPage() {
               </div>
             ) : (
               <>
-                <p className="mb-3 text-[12.5px] text-ink-2">Verification unlocks the checked shield, auto-verified leads, and 18% higher median rates in our survey. Link your GitHub — or ask a moderator to vet you manually.</p>
-                <VerifyForm githubUrl={user.githubUrl} portfolioUrl={user.portfolioUrl} />
+                <p className="mb-3 text-[12.5px] text-ink-2">Email sign-in does not verify professional credentials. Ask a moderator about manual verification.</p>
+                {demo && <VerifyForm githubUrl={user.githubUrl} portfolioUrl={user.portfolioUrl} />}
               </>
             )}
           </Widget>

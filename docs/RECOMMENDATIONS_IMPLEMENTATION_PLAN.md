@@ -85,6 +85,8 @@ Baseline from the repository audit: plain `npm ci` failed; a legacy-peer install
 
 ## Phase 3 — Verified email intake (staging first)
 
+See the [Phase 3 staging runbook](MARKETPLACE_PHASE_3.md) for the implementation, disposable rehearsal, and hosted rollout gates.
+
 **Goal & scope.** Add the real guest handoff after the dev loop works. Guest fills the brief and **Email + name**, company optional, at the end. Confirm email and submit without corporate onboarding. Test with staging accounts and inboxes before enabling outside use. Use one managed email provider flow; a managed identity service such as Supabase Auth is an option once the intended project is confirmed. Don't change the Drizzle app data layer.
 
 **Database & migrations.** Add private `auth_identities` with unique `(provider, subject)`, app `userId` FK, private confirmed email and verification time. Never make legacy handles an identity key. Add nullable `users.companyName` for optional onboarding of a new buyer. Add private `lead_intakes`: random UUID, HMAC of normalized email, validated brief and submission key, name/company, `createdAt`, `expiresAt`, `consumedAt`, and nullable `leadId`. A live unconsumed row is `pending_verification`; consumption or expiration is independent of the lead's state. Unique intake retry key per email and bounded retention (propose 24 hours for unclaimed drafts; the auth link can expire sooner). Reuse shared platform/provider limits where available, otherwise use small atomic PostgreSQL rate-limit buckets with expiring keyed counters. No nullable author on `leads`, raw verification token table, or second account model.

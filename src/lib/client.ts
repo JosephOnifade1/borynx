@@ -9,6 +9,7 @@ export class ClientError extends Error {
     message: string,
     public code: string,
     public fields?: Record<string, string>,
+    public retryAfter?: number,
   ) {
     super(message);
   }
@@ -35,7 +36,8 @@ export async function api<T>(url: string, init?: RequestInit & { json?: unknown 
     } catch {
       /* non-JSON error */
     }
-    throw new ClientError(res.status, payload.error ?? `Request failed (${res.status})`, payload.code ?? "error", payload.fields);
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    throw new ClientError(res.status, payload.error ?? `Request failed (${res.status})`, payload.code ?? "error", payload.fields, retryAfter > 0 && Number.isFinite(retryAfter) ? retryAfter : undefined);
   }
   return (await res.json()) as T;
 }

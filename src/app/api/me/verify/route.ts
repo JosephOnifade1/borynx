@@ -3,17 +3,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { modActions, users } from "@/db/schema";
 import { handler, readJson } from "@/lib/api";
-import { HttpError, requireActor } from "@/lib/auth";
+import { getDemoAccountMode, HttpError, requireActor } from "@/lib/auth";
 import { evaluateBadges } from "@/lib/services";
 
 export const dynamic = "force-dynamic";
 
-/**
- * GitHub verification. When GITHUB_CLIENT_ID is configured this would redirect to OAuth; in the
- * sandbox we accept a GitHub profile URL, validate its shape, and mark the account verified so the
- * badge pipeline can be exercised end-to-end. A mod_actions audit row is written either way.
- */
+/** URL-only verification is a demo affordance, not proof of GitHub ownership. */
 export const POST = handler(async (req: NextRequest) => {
+  if (await getDemoAccountMode() === "disabled") throw new HttpError(404, "Verification is unavailable", "not_found");
   const actor = await requireActor();
   const body = await readJson<{ githubUrl?: string; portfolioUrl?: string }>(req);
   const githubUrl = typeof body.githubUrl === "string" ? body.githubUrl.trim() : "";
