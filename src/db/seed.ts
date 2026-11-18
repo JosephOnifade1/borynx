@@ -16,6 +16,8 @@ import {
   type PostKind,
 } from "@/db/schema";
 import { BADGE_DEFINITIONS } from "@/lib/badges";
+import { isDemoMode } from "@/lib/demo-mode";
+import { DEMO_PERSONAS } from "@/lib/demo-personas";
 import { evaluateBadges, type Executor } from "@/lib/services";
 import { slugify } from "@/lib/utils";
 
@@ -24,7 +26,7 @@ const ago = (hours: number) => new Date(Date.now() - hours * HOUR);
 
 const SEED_LOCK = 4_242_002;
 
-export type SeedResult = "inserted" | "present";
+export type SeedResult = "inserted" | "present" | "disabled";
 
 /**
  * Idempotent, transactional seed. Concurrent callers serialise on an advisory lock, and a failure
@@ -34,10 +36,14 @@ export async function seedDatabase(): Promise<SeedResult> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${SEED_LOCK}::bigint)`);
     await seedBadges(tx);
+    if (!isDemoMode()) return "disabled";
+
     const [{ c }] = await tx.select({ c: count() }).from(users);
-    if (c > 0) return "present";
-    await seedContent(tx);
-    return "inserted";
+    if (c === 0) await seedContent(tx);
+    // Add the test personas on upgraded demo databases too. Never rewrite an existing user.
+    await tx.insert(users).values(DEMO_PERSONAS.map((persona) => ({ ...persona })))
+      .onConflictDoNothing({ target: users.username });
+    return c === 0 ? "inserted" : "present";
   });
 }
 

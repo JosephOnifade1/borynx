@@ -4,6 +4,8 @@ import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { db } from "@/db";
 import { memberships, sessions, users, type User } from "@/db/schema";
+import { isDemoMode } from "./demo-mode";
+import { isDemoHandle } from "./demo-personas";
 import { HttpError } from "./errors";
 
 export { HttpError };
@@ -67,7 +69,8 @@ export function buildCookie(req: Request, name: string, value: string, maxAgeSec
 
 export const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
 
-export async function createSession(userId: number, userAgent: string): Promise<{ token: string; expiresAt: Date }> {
+export async function createDemoSession(userId: number, userAgent: string): Promise<{ token: string; expiresAt: Date }> {
+  if (!isDemoMode()) throw new HttpError(404, "Sign-in is unavailable", "not_found");
   const token = randomBytes(32).toString("base64url"); // 43 chars, 256 bits
   const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
   await db.delete(sessions).where(lt(sessions.expiresAt, new Date())); // housekeeping
@@ -90,13 +93,16 @@ async function tokenCandidates(): Promise<Array<{ token: string; transport: Sess
   const out: Array<{ token: string; transport: SessionTransport }> = [];
   const fromCookie = jar.get(SESSION_COOKIE)?.value;
   if (fromCookie && TOKEN_PATTERN.test(fromCookie)) out.push({ token: fromCookie, transport: "cookie" });
-  const fromHeader = hdrs.get(SESSION_HEADER) ?? hdrs.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+  const fromHeader = hdrs.get(SESSION_HEADER) ?? hdrs.get("authorization")?.match(/^Bearer\s+([A-Za-z0-9_-]{43})$/i)?.[1] ?? null;
   if (fromHeader && TOKEN_PATTERN.test(fromHeader) && fromHeader !== fromCookie) out.push({ token: fromHeader, transport: "header" });
   return out;
 }
 
 /** Resolves the session from the cookie first, then the header. Memoised per request. */
 export const getSession = cache(async (): Promise<ResolvedSession | null> => {
+  // Every existing session was issued by handle-only demo login. Until verified auth
+  // has its own session boundary, reject those cookies as well as header tokens off-demo.
+  if (!isDemoMode()) return null;
   const candidates = (await tokenCandidates()).map((c) => ({ ...c, id: hashToken(c.token) }));
   if (candidates.length === 0) return null;
   const rows = await db
@@ -106,7 +112,7 @@ export const getSession = cache(async (): Promise<ResolvedSession | null> => {
     .where(and(inArray(sessions.id, candidates.map((c) => c.id)), gt(sessions.expiresAt, new Date())));
   for (const candidate of candidates) {
     const row = rows.find((r) => r.id === candidate.id);
-    if (!row) continue;
+    if (!row || !isDemoHandle(row.user.username)) continue;
     if (Date.now() - row.lastSeenAt.getTime() > 3_600_000) {
       void db.update(sessions).set({ lastSeenAt: new Date() }).where(eq(sessions.id, row.id)).catch(() => undefined);
     }

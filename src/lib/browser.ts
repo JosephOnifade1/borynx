@@ -76,12 +76,13 @@ export const TOKEN_KEY = "bx-token";
 declare global {
   interface Window {
     __bxToken?: string | null;
+    __bxDemoMode?: boolean;
   }
 }
 
 /** Read order must match the inline fetch shim in app/layout.tsx: local → session → memory. */
 export function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined" || !window.__bxDemoMode) return null;
   return safeStorage.get(TOKEN_KEY) ?? safeStorage.get(TOKEN_KEY, "session") ?? window.__bxToken ?? null;
 }
 

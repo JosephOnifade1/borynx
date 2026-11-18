@@ -1,6 +1,6 @@
 # Borynx: phase-by-phase marketplace implementation plan
 
-**Status: proposed for review.** Based on the Borynx checkout at `11e1195`, branch `arena/6e6e884a-borynx`. No application changes, migrations, external auth configuration, or live database inspection are part of this review.
+**Status: Phase 0 implemented on the working branch.** See the [local database runbook](./LOCAL_DATABASE.md) for the completed setup and verification. Phases 1–6 remain proposals. The audit below describes the original checkout at `11e1195`.
 
 ## What the repository already gives us
 
@@ -33,7 +33,7 @@ Baseline from the repository audit: plain `npm ci` failed; a legacy-peer install
 
 **Goal & scope.** Fix the lockfile/test baseline before changing marketplace behavior. Document the supported Node/npm version, fix `npm ci` without legacy flags, add `npm test` (`vitest run`), and keep baseline lint fixes separate from feature changes.
 
-**Database & migrations.** No new product schema. Apply `0000`–`0003` on disposable PostgreSQL and test an upgrade from a representative older app schema. Inspect the ledger before treating a schema-pushed database as migrated. Gate `src/db/seed.ts` demo content to isolated dev/test. Use a buyer, two bidders, a site reviewer, and an unrelated user plus guest requests; don't rely on real personas or account IDs.
+**Database & migrations.** No new product schema. Apply the full current journal (`0000`–`0004`) on disposable PostgreSQL and test an upgrade from a representative older app schema. Require a matching journal prefix; refuse untracked schema rather than marking a push as migrated. Gate `src/db/seed.ts` demo content to isolated dev/test. Use a buyer, two bidders, a site reviewer, and an unrelated user plus guest requests; don't rely on real personas or account IDs.
 
 **API.** No new route. Keep dev `POST /api/auth/login` with `{ username }` for seeded identities and its existing `{ ok, user, … }` response inside demo mode only. Deny it outside that mode, and gate `x-bx-session`/bearer fallback on the server as well as the UI. Keep `/api/health` usable without adding public database diagnostics.
 
@@ -172,4 +172,4 @@ Baseline from the repository audit: plain `npm ci` failed; a legacy-peer install
 - Only after Phase 3 is safe and someone can review leads should an invite-only pilot use real buyers. Approve manually and measure time to approval, relevant bids, and paid starts confirmed by both parties. When public access widens, keep first and flagged leads queued. A public lead, hire rate, and completed work count don't prove payment.
 - Separate proposal backlog: generalized messaging, escrow/payments, organization accounts, saved searches/collections, weekly digest and instant discovery alerts, additional OAuth providers, and badges that require independent identity or earnings evidence. None is needed to validate the core flow.
 
-**First approval:** Phase 0 only. Before Phase 1, confirm the plan for existing public data and the new-contract floor; before Phase 3, confirm the identity provider, manual-first publication policy, and intake retention/security rules. All application implementation waits for phase approval.
+**Next approval:** Before Phase 1, confirm the plan for existing public data and the new-contract floor; before Phase 3, confirm the identity provider, manual-first publication policy, and intake retention/security rules. Evaluate and approve each phase separately.

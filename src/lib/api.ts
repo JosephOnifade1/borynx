@@ -15,7 +15,7 @@ export function handler(fn: Handler) {
       const status = await ensureDatabase();
       if (!status.ok) {
         return Response.json(
-          { error: `Database unavailable during ${status.stage}: ${status.error ?? "unknown error"}`, code: "db_unavailable" },
+          { error: "Database unavailable", code: "db_unavailable" },
           { status: 503, headers: { "Retry-After": "5" } },
         );
       }

@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { GitBranch, LogIn, ShieldCheck, UserPlus } from "lucide-react";
+import { GitBranch, LogIn, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { readStoredReferral, useSession } from "@/components/providers";
+import { useSession } from "@/components/providers";
 import { clearStoredToken, storeToken } from "@/lib/browser";
 import { Avatar, VerifiedMark } from "@/components/primitives";
 import { api, ClientError } from "@/lib/client";
@@ -199,18 +199,15 @@ interface Persona {
   isBanned: boolean;
 }
 
-export function LoginForm({ personas, next }: { personas: Persona[]; next?: string }) {
+export function LoginForm({ personas, destination }: { personas: Persona[]; destination: string }) {
   const router = useRouter();
   const notify = useNotify();
   const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [mode, setMode] = useState<"signin" | "create">("signin");
   const [cookieBlocked, setCookieBlocked] = useState(false);
-  const destination = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
   const m = useMutation({
-    mutationFn: async (u: { username: string; create: boolean; displayName?: string }): Promise<"cookie" | "header" | "memory" | "blocked"> => {
+    mutationFn: async (username: string): Promise<"cookie" | "header" | "memory" | "blocked"> => {
       clearStoredToken();
-      const res = await api<{ ok: true; token: string }>("/api/auth/login", { method: "POST", json: { ...u, referral: readStoredReferral() } });
+      const res = await api<{ ok: true; token: string }>("/api/auth/login", { method: "POST", json: { username } });
       // Tier 1 — did the browser keep the session cookie? (no token stored yet → cookie-only probe)
       const viaCookie = await api<{ user: { id: number } | null }>("/api/me", { cache: "no-store" });
       if (viaCookie.user) return "cookie";
@@ -246,11 +243,11 @@ export function LoginForm({ personas, next }: { personas: Persona[]; next?: stri
       )}
       <div>
         <p className="eyebrow">Seeded personas</p>
-        <p className="mt-1 text-[13px] text-ink-2">Pick an identity to explore different permission tiers — admin, moderator, verified pro, newcomer, or a banned account.</p>
+        <p className="mt-1 text-[13px] text-ink-2">Try the buyer, either bidder, the reviewer, or an unrelated observer.</p>
         <ul className="mt-4 divide-y divide-line rounded-md border border-line">
           {personas.map((p) => (
             <li key={p.username}>
-              <button type="button" onClick={() => m.mutate({ username: p.username, create: false })} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-sunken" disabled={m.isPending}>
+              <button type="button" onClick={() => m.mutate(p.username)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-sunken" disabled={m.isPending}>
                 <Avatar hue={p.avatarHue} name={p.displayName} size={32} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 text-[13.5px] font-semibold">
@@ -271,34 +268,20 @@ export function LoginForm({ personas, next }: { personas: Persona[]; next?: stri
         className="panel-raised h-fit rounded-lg p-5"
         onSubmit={(e) => {
           e.preventDefault();
-          m.mutate({ username, create: mode === "create", displayName });
+          m.mutate(username);
         }}
       >
-        <div role="tablist" className="mb-4 inline-flex rounded-md border border-line p-0.5">
-          {(["signin", "create"] as const).map((t) => (
-            <button key={t} type="button" role="tab" aria-selected={mode === t} onClick={() => setMode(t)} className={cn("h-7 rounded px-3 text-[12.5px] font-medium", mode === t ? "bg-sunken text-ink" : "text-ink-3")}>
-              {t === "signin" ? "Sign in" : "Create account"}
-            </button>
-          ))}
-        </div>
         <label className="block">
           <span className="eyebrow">Handle</span>
           <div className="relative mt-1.5">
             <span className="num pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3">f/</span>
-            <input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} className="field pl-8" placeholder="your-handle" pattern="[a-z0-9][a-z0-9_.\-]{1,31}" required />
+            <input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} className="field pl-8" placeholder="demo-buyer" pattern="[a-z0-9][a-z0-9_.\-]{1,31}" required />
           </div>
         </label>
-        {mode === "create" && (
-          <label className="mt-3 block">
-            <span className="eyebrow">Display name</span>
-            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="field mt-1.5" placeholder="How you appear on the ledger" maxLength={80} />
-          </label>
-        )}
         <button type="submit" className="btn btn-primary mt-4 w-full justify-center" disabled={m.isPending}>
-          {mode === "create" ? <UserPlus size={14} /> : <LogIn size={14} />}
-          {m.isPending ? "Working…" : mode === "create" ? "Create & sign in" : "Sign in"}
+          <LogIn size={14} /> {m.isPending ? "Signing in…" : "Sign in"}
         </button>
-        <p className="mt-3 text-[11px] text-ink-3">Sandbox auth: a session cookie keyed to your user row. Referral attribution captured on landing is converted on account creation.</p>
+        <p className="mt-3 text-[11px] text-ink-3">Only the fictional accounts listed here can sign in in demo mode.</p>
       </form>
     </div>
   );

@@ -1,9 +1,12 @@
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { assertDemoDatabase } from "@/lib/demo-mode";
 import * as schema from "./schema";
 
 const FALLBACK_URL = "postgresql://postgres:postgres@127.0.0.1:5432/app_db";
+
+assertDemoDatabase();
 
 const databaseUrl = process.env.DATABASE_URL ?? FALLBACK_URL;
 

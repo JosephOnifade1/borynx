@@ -79,16 +79,6 @@ function ReferralCapture(): null {
   return null;
 }
 
-export function readStoredReferral(): { shareId: string; refId: number | null } | null {
-  const raw = safeStorage.get(REF_KEY, "session");
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as { shareId: string; refId: number | null };
-  } catch {
-    return null;
-  }
-}
-
 /* ---------------- Toast ---------------- */
 
 function Toast(): ReactNode {
@@ -108,7 +98,7 @@ function Toast(): ReactNode {
 
 /* ---------------- Root provider ---------------- */
 
-export function Providers({ children, user }: { children: ReactNode; user: PublicUser | null }) {
+export function Providers({ children, user, demoMode }: { children: ReactNode; user: PublicUser | null; demoMode: boolean }) {
   const [client] = useState(
     () =>
       new QueryClient({
@@ -122,7 +112,7 @@ export function Providers({ children, user }: { children: ReactNode; user: Publi
     <QueryClientProvider client={client}>
       <SessionContext.Provider value={user}>
         <UiHydrator />
-        <SessionReconciler user={user} />
+        {demoMode && <SessionReconciler user={user} />}
         <Suspense fallback={null}>
           <ReferralCapture />
         </Suspense>

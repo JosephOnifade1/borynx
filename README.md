@@ -33,51 +33,35 @@ Borynx is built specifically for tech freelancers (Engineering, Design, DevOps, 
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- Node.js 18+ (Node 20+ recommended)
-- PostgreSQL database (local or hosted via Neon, Supabase, etc.)
+### 1. Install the pinned toolchain
 
-### 2. Installation
-```bash
-# Clone the repository
-git clone https://github.com/your-username/borynx.git
-cd borynx
-
-# Install dependencies
-npm install
-```
-
-### 3. Environment Setup
-Copy the example environment file and add your PostgreSQL connection URL:
-```bash
-cp .env.example .env.local
-```
-
-Edit `.env.local`:
-```env
-DATABASE_URL=postgresql://user:password@localhost:5432/borynx_db?sslmode=require
-```
-
-### 4. Database Migrations
-Run Drizzle migrations to initialize all tables, enums, and indexes:
-```bash
-npx drizzle-kit migrate
-```
-
-### 5. Start Development Server
-```bash
-npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Post author action tests
-Run `npx vitest run` for unit tests, including legacy Markdown round-trips. To also exercise edit and delete through the API, start Borynx with a disposable, demo-seeded local database and run:
+Use Node.js 22 (22.12 or newer within the 22.x line) and npm 10. The checkout is verified with Node **22.22.3** (`.nvmrc`) and npm **10.9.8**. With nvm, run `nvm install` and `nvm use` from the repository root, then:
 
 ```bash
-BORYNX_POST_TEST_ORIGIN=http://127.0.0.1:3000 npx vitest run
+npm ci
 ```
 
-The opt-in tests create fixture users, posts, replies, and reports. Do not point the local app at a shared or production database for these tests.
+### 2. Start the disposable local demo
+
+```bash
+npm run dev:demo
+```
+
+Open [http://127.0.0.1:3000/login](http://127.0.0.1:3000/login). Choose the fictional **Demo Buyer**, either **Demo Bidder**, **Demo Reviewer**, or **Demo Observer**. The command starts its own loopback PostgreSQL with a random password and applies the migration journal. It ignores any existing `DATABASE_URL` and discards the demo data on normal shutdown. Run as a normal user, not root. The embedded test database was verified on Linux x64; it requires a supported native binary for your platform.
+
+For a longer-lived **local-only** setup, create an empty PostgreSQL database named `borynx_demo` (or `borynx_demo_<suffix>`), copy `.env.example` to `.env.local`, set the loopback `DATABASE_URL` and set `BORYNX_DEMO_MODE=1`. Then run `npm run dev`. Keep the URL free of query options and never import live data into this database. `next start` (production mode) never enables demo sign-in or seeding, even if this flag is present. Real sign-in is not available yet.
+
+### 3. Verify the checkout
+
+```bash
+npm test                 # unit tests; no PostgreSQL needed
+npm run typecheck
+npm run lint
+npm run build
+npm run test:db          # temporary PostgreSQL + HTTP integration tests
+```
+
+Stop the dev app before running `test:db` so its Next.js dev build directory is free. The suite starts its own database and app; no credential or database argument is needed. See the [local database runbook](./docs/LOCAL_DATABASE.md) for ledger validation, upgrade coverage, and the demo-mode boundary.
 
 ---
 
@@ -95,12 +79,16 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 
 | Command | Action |
 |---|---|
-| `npm run dev` | Start Next.js Turbopack development server |
+| `npm run dev` | Start Next.js against your configured database (demo mode is opt-in) |
+| `npm run dev:demo` | Start an isolated development app with disposable PostgreSQL |
 | `npm run build` | Compile optimized production build |
 | `npm run start` | Start production server |
 | `npm run typecheck` | Run TypeScript compiler validation |
+| `npm run lint` | Run ESLint |
+| `npm test` | Run Vitest unit tests |
+| `npm run test:db` | Test fresh and legacy migrations and demo gating on disposable PostgreSQL |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
-| `npx drizzle-kit migrate` | Apply pending migrations to PostgreSQL |
+| `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
 | `npx drizzle-kit studio` | Launch local visual database browser |
 
 ---

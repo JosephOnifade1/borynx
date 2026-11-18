@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { CommentNode, FeedPage, FeedPost, SearchResult } from "../types";
 
-// Opt in against a locally running app with a disposable, demo-seeded database.
+// The disposable database harness starts a fresh app for this suite (npm run test:db).
 const origin = process.env.BORYNX_POST_TEST_ORIGIN;
 const tag = randomUUID().slice(0, 8);
-const username = `post-author-${tag}`;
+const username = "demo-buyer";
 const spaceSlug = "devops-cloud";
 type Session = { token: string };
 
@@ -36,9 +36,9 @@ describe.runIf(Boolean(origin))("post author actions against a disposable app", 
     expect(["localhost", "127.0.0.1", "[::1]"]).toContain(new URL(origin!).hostname);
     expect((await request("/api/health")).status).toBe(200);
     [author, reader, moderator] = await Promise.all([
-      read<Session>(request("/api/auth/login", "POST", undefined, { username, create: true })),
-      read<Session>(request("/api/auth/login", "POST", undefined, { username: `post-reader-${tag}`, create: true })),
-      read<Session>(request("/api/auth/login", "POST", undefined, { username: "mara_k" })),
+      read<Session>(request("/api/auth/login", "POST", undefined, { username })),
+      read<Session>(request("/api/auth/login", "POST", undefined, { username: "demo-bidder-a" })),
+      read<Session>(request("/api/auth/login", "POST", undefined, { username: "demo-reviewer" })),
     ]);
   });
 
