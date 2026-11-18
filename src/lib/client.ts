@@ -45,7 +45,8 @@ export async function api<T>(url: string, init?: RequestInit & { json?: unknown 
 export const queryKeys = {
   posts: (params: Record<string, string | undefined>) => ["posts", params] as const,
   comments: (postId: number) => ["comments", postId] as const,
-  leads: (params: Record<string, string | undefined>) => ["leads", params] as const,
+  leads: (viewerId: number | null, params: string) => ["leads", viewerId, params] as const,
+  savedLeads: (viewerId: number | null) => ["saved-leads", viewerId] as const,
   user: (username: string) => ["user", username] as const,
   userFollow: (username: string) => ["userFollow", username] as const,
   notifications: () => ["notifications"] as const,

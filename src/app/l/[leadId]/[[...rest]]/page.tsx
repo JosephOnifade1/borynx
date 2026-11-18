@@ -11,6 +11,7 @@ import { BidForm } from "@/components/leads/BidForm";
 import { LeadComposer } from "@/components/leads/LeadComposer";
 import { LeadEngagementBadge } from "@/components/leads/LeadEngagementBadge";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
+import { LeadSaveButton } from "@/components/leads/LeadSaveButton";
 import { LeadReviewControls, WithdrawLeadButton } from "@/components/leads/LeadReviewControls";
 import { AwardBidButton, LeadOutcomeControls } from "@/components/leads/LeadPosterControls";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
@@ -22,6 +23,7 @@ import { getCurrentUser, isSiteStaff, isSuspended, restrictionMessage } from "@/
 import { leadDetailAccess, parseLeadId, publicLead } from "@/lib/lead-access";
 import { canSelectBid, getLeadEngagement, matchesLeadAward } from "@/lib/lead-engagement";
 import { LEAD_SKILLS } from "@/lib/lead-input";
+import { isLeadSaved } from "@/lib/lead-saves";
 import { LEAD_KIND_LABEL, leadBudgetUnitLabel } from "@/lib/constants";
 import { formatBudget, routes, timeAgo } from "@/lib/utils";
 
@@ -132,7 +134,8 @@ export default async function LeadPage({ params }: { params: Params }) {
   const canonical = routes.lead(lead.id, lead.slug);
   if ((rest?.[0] ?? "") !== lead.slug || (rest?.length ?? 0) > 1) permanentRedirect(canonical);
 
-  const [vote, pitches] = await Promise.all([
+  const [saved, vote, pitches] = await Promise.all([
+    user ? isLeadSaved(user.id, lead.id) : false,
     user ? db.select({ value: votes.value }).from(votes).where(and(eq(votes.userId, user.id), eq(votes.targetType, "lead"), eq(votes.targetId, lead.id))).limit(1) : Promise.resolve([]),
     // Scope the query itself: the poster sees all, a bidder sees only their own, and staff
     // have no pitch access just by holding a moderation role.
@@ -254,6 +257,7 @@ export default async function LeadPage({ params }: { params: Params }) {
             <MarkdownRenderer source={lead.description} />
             <Skills tags={lead.skillTags} />
             <div className="mt-5 flex flex-wrap items-center gap-1 border-t border-line pt-3">
+              <LeadSaveButton leadId={lead.id} saved={saved} />
               <ShareButton path={canonical} label="Copy attributed link" />
               <ReportButton target={{ type: "lead", id: lead.id, label: lead.title, spaceId: space?.id ?? null }} />
             </div>
