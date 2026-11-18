@@ -14,7 +14,6 @@ import { Widget } from "../Widget";
  * (accepted solutions), and platform rules.
  */
 export async function ContextRail() {
-  const since = new Date(Date.now() - 7 * 86_400_000);
   const [trending, topLeads, solvers] = await Promise.all([
     db
       .select({
@@ -24,7 +23,7 @@ export async function ContextRail() {
         weekly: sql<number>`count(${posts.id})::int`,
       })
       .from(spaces)
-      .leftJoin(posts, and(eq(posts.spaceId, spaces.id), activePost, gte(posts.createdAt, since)))
+      .leftJoin(posts, and(eq(posts.spaceId, spaces.id), activePost, gte(posts.createdAt, sql`now() - interval '168 hours'`)))
       .where(eq(spaces.privacy, "public"))
       .groupBy(spaces.id)
       .orderBy(desc(sql`count(${posts.id})`), desc(spaces.memberCount))

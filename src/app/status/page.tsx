@@ -3,6 +3,7 @@ import Link from "next/link";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { databaseSnapshot, ensureDatabase } from "@/db/bootstrap";
 import { getSession } from "@/lib/auth";
+import { isDemoMode } from "@/lib/demo-mode";
 import { routes } from "@/lib/utils";
 
 export const metadata = { title: "System status" };
@@ -26,6 +27,11 @@ function Step({ label, done, detail }: { label: string; done: boolean; detail?: 
 
 export default async function StatusPage() {
   const status = await ensureDatabase();
+  if (!isDemoMode() || !status.ok) {
+    return (
+      <PageFrame header={<PageHeader eyebrow="System" title="Service status" />}><p className="px-5 py-6 text-[13px]">{status.ok ? "Borynx is operational." : "Borynx is temporarily unavailable."}</p></PageFrame>
+    );
+  }
   const [snapshot, session] = await Promise.all([databaseSnapshot(), getSession()]);
   const totalRows = snapshot.tables.reduce((sum, t) => sum + t.rows, 0);
   const engine = snapshot.version.split(" ").slice(0, 2).join(" ");
@@ -69,7 +75,7 @@ export default async function StatusPage() {
           <Widget title="Boot sequence">
             <ol className="space-y-2.5 text-[12.5px]">
               <Step label="Connect to PostgreSQL" done={status.ok || status.stage !== "connect"} />
-              <Step label={status.baselined ? "Baselined push-created schema" : "Migration ledger ready"} done={status.ok} detail="drizzle.__drizzle_migrations" />
+              <Step label="Migration ledger verified" done={status.ok} detail="drizzle.__drizzle_migrations" />
               <Step label="Apply Drizzle migrations" done={status.migrationsApplied >= status.migrationsAvailable && status.migrationsAvailable > 0} detail={`${status.migrationsApplied}/${status.migrationsAvailable} applied`} />
               <Step label="Seed" done={status.seed === "inserted" || status.seed === "present"} detail={status.seed === "inserted" ? "inserted on this boot" : status.seed === "present" ? "data already present" : (status.seedError ?? status.seed)} />
             </ol>
@@ -139,7 +145,7 @@ export default async function StatusPage() {
           </table>
         </div>
         <p className="mt-2 text-[11.5px] text-ink-3">
-          Shared with Drizzle Kit: <code>npx drizzle-kit migrate</code> reads the same ledger, so manual and automatic runs never double-apply.
+          The app and <code>npm run db:migrate</code> verify the same ledger before applying new migrations.
         </p>
       </section>
     </PageFrame>

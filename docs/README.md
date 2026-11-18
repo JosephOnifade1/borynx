@@ -26,14 +26,15 @@ This directory contains architectural specifications, implementation blueprints,
 
 ---
 
-## Proposed Roadmap
+## Marketplace Roadmap
 
-- [Phase-by-phase marketplace implementation plan](./RECOMMENDATIONS_IMPLEMENTATION_PLAN.md) — Development-first phases with schema, API contracts, UI, security, and acceptance checks for review.
+- [Phase-by-phase marketplace implementation plan](./RECOMMENDATIONS_IMPLEMENTATION_PLAN.md) — Development-first phases with schema, API contracts, and acceptance checks.
+- [Local database runbook](./LOCAL_DATABASE.md) — Phase 0 setup, migration checks, and demo sign-in safeguards.
 
 ---
 
 ## 🏗️ Technical Stack Summary
-- **Framework:** Next.js 16.2.6 (App Router + Turbopack)
+- **Framework:** Next.js 16.4.6 (App Router + Turbopack)
 - **Runtime:** React 19.2.6
 - **Database ORM:** Drizzle ORM 0.45.2 + `pg` (node-postgres)
 - **Styling:** Tailwind CSS v4 (`@tailwindcss/postcss`)

@@ -15,6 +15,7 @@ import { Avatar, BadgeChip, VerifiedMark } from "@/components/primitives";
 import { getCurrentUser, isSiteStaff } from "@/lib/auth";
 import { activePost, postSpaceAccess } from "@/lib/post-access";
 import { listLeads, listPosts, resolveUser } from "@/lib/queries";
+import { isRankMode } from "@/lib/sorting";
 import { getUserBadges } from "@/lib/services";
 import type { FeedLead, FeedPage, FeedPost } from "@/lib/types";
 import { cn, routes, timeAgo } from "@/lib/utils";
@@ -44,9 +45,10 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
  *   tab bar (Threads · Solved · Active leads) · tabbed feed
  * Legacy /u/… is rewritten by the proxy; renamed handles resolve through user_aliases.
  */
-export default async function ProfilePage({ params, searchParams }: { params: Params; searchParams: Promise<{ tab?: string }> }) {
+export default async function ProfilePage({ params, searchParams }: { params: Params; searchParams: Promise<{ tab?: string; sort?: string }> }) {
   const { username } = await params;
-  const { tab: tabParam } = await searchParams;
+  const { tab: tabParam, sort } = await searchParams;
+  const mode = isRankMode(sort) ? sort : "new";
   const resolved = await resolveUser(username);
   if (!resolved) notFound();
   if (!resolved.canonical) permanentRedirect(routes.profile(resolved.user.username));
@@ -74,7 +76,7 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
 
   const counts: Record<Tab, number> = { posts: threads.c, solved: solvedThreads.c, leads: openLeads.c };
   const leadPage: FeedPage<FeedLead> | null = tab === "leads" ? await listLeads({ mode: "new", authorId: profile.id, viewerId: viewer?.id ?? null }) : null;
-  const postPage: FeedPage<FeedPost> | null = tab !== "leads" ? await listPosts({ mode: "new", authorId: profile.id, solvedOnly: tab === "solved", viewer }) : null;
+  const postPage: FeedPage<FeedPost> | null = tab !== "leads" ? await listPosts({ mode, authorId: profile.id, solvedOnly: tab === "solved", viewer }) : null;
   const hue = profile.avatarHue;
   const base = routes.profile(profile.username);
 
@@ -214,7 +216,7 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
           <PostFeed
             author={profile.username}
             solved={tab === "solved"}
-            initialMode="new"
+            initialMode={mode}
             initialPage={postPage}
             emptyTitle={tab === "solved" ? "No solved threads yet" : "No threads yet"}
             emptyHint={isSelf ? "Your first thread unlocks the First Post badge." : "Nothing published yet."}

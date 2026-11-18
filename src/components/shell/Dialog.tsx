@@ -24,9 +24,11 @@ export function Dialog({ open, onClose, title, description, children, className,
   const titleId = useId();
   const descId = useId();
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
   const initialFocusTargetRef = useRef(initialFocusRef);
-  initialFocusTargetRef.current = initialFocusRef;
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    initialFocusTargetRef.current = initialFocusRef;
+  }, [onClose, initialFocusRef]);
 
   const hasFocusedRef = useRef(false);
 

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte } from "drizzle-orm";
+import { and, count, desc, eq, gte, sql } from "drizzle-orm";
 import { Lock, Plus } from "lucide-react";
 import Link from "next/link";
 import { db } from "@/db";
@@ -12,10 +12,9 @@ export const metadata = { title: "Spaces" };
 
 export default async function SpacesDirectory() {
   const user = await getCurrentUser();
-  const since = new Date(Date.now() - 7 * 86_400_000);
   const [all, weekly, mine] = await Promise.all([
     db.select().from(spaces).orderBy(desc(spaces.memberCount)),
-    db.select({ spaceId: posts.spaceId, c: count() }).from(posts).where(and(activePost, gte(posts.createdAt, since))).groupBy(posts.spaceId),
+    db.select({ spaceId: posts.spaceId, c: count() }).from(posts).where(and(activePost, gte(posts.createdAt, sql`now() - interval '168 hours'`))).groupBy(posts.spaceId),
     user ? db.select({ spaceId: memberships.spaceId }).from(memberships).where(eq(memberships.userId, user.id)) : Promise.resolve([]),
   ]);
   const weeklyMap = new Map(weekly.map((w) => [w.spaceId, w.c]));

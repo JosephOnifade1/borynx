@@ -1,25 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readMigrationFiles } from "drizzle-orm/migrator";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { db, pool } from "./index";
+import { pool } from "./index";
+import { LEDGER, migrateDatabase, migrationsFolder } from "./migrations";
 import { seedDatabase, type SeedResult } from "./seed";
 
-/**
- * Self-bootstrapping database layer.
- *
- *   connect (retry with backoff) → advisory lock → baseline push-created schema
- *   → drizzle migrate (./drizzle) → transactional seed
- *
- * Runs once per process from `src/instrumentation.ts`, and lazily (memoised) from the root layout
- * and every API handler, so the app works against a completely empty Postgres with zero manual
- * steps — and equally against a database someone already synced with `drizzle-kit push`.
- */
-
-export const MIGRATIONS_SCHEMA = "drizzle";
-export const MIGRATIONS_TABLE = "__drizzle_migrations";
-const LEDGER = `"${MIGRATIONS_SCHEMA}"."${MIGRATIONS_TABLE}"`;
-const BOOTSTRAP_LOCK = 4_242_001;
+/** Connect → verify/apply the Drizzle journal → seed the catalogue and optional demo fixtures. */
 const FIRST_CONNECT_BUDGET_MS = 15_000;
 const RETRY_CONNECT_BUDGET_MS = 3_000;
 const RETRY_COOLDOWN_MS = 4_000;
@@ -31,7 +16,6 @@ export interface DbStatus {
   ok: boolean;
   stage: BootstrapStage;
   error: string | null;
-  baselined: boolean;
   migrationsApplied: number;
   migrationsAvailable: number;
   seed: SeedState;
@@ -47,8 +31,6 @@ const state = globalThis as typeof globalThis & {
 
 const describe = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-export const migrationsFolder = (): string => path.join(process.cwd(), "drizzle");
-
 async function waitForPostgres(budgetMs: number): Promise<void> {
   const started = Date.now();
   for (let attempt = 1; ; attempt++) {
@@ -62,37 +44,12 @@ async function waitForPostgres(budgetMs: number): Promise<void> {
   }
 }
 
-async function ensureLedger(): Promise<void> {
-  await pool.query(`create schema if not exists "${MIGRATIONS_SCHEMA}"`);
-  await pool.query(`create table if not exists ${LEDGER} (id serial primary key, hash text not null, created_at bigint)`);
-}
-
-async function ledgerCount(): Promise<number> {
-  const { rows } = await pool.query<{ c: number }>(`select count(*)::int as c from ${LEDGER}`);
-  return rows[0]?.c ?? 0;
-}
-
-/**
- * A database created with `drizzle-kit push` has the initial schema but an empty ledger. Record
- * migration 0000 as applied so `migrate()` resumes after it. Every later migration is written
- * idempotently, so it applies cleanly whether or not `push` already created its objects.
- */
-async function baselinePushedDatabase(folder: string): Promise<boolean> {
-  const { rows } = await pool.query<{ present: boolean }>(`select to_regclass('public.users') is not null as present`);
-  if (!rows[0]?.present || (await ledgerCount()) > 0) return false;
-  const [initial] = readMigrationFiles({ migrationsFolder: folder });
-  if (!initial) return false;
-  await pool.query(`insert into ${LEDGER} (hash, created_at) values ($1, $2)`, [initial.hash, initial.folderMillis]);
-  return true;
-}
-
 async function bootstrap(connectBudgetMs: number): Promise<DbStatus> {
   const started = Date.now();
   const status: DbStatus = {
     ok: false,
     stage: "connect",
     error: null,
-    baselined: false,
     migrationsApplied: 0,
     migrationsAvailable: 0,
     seed: "pending",
@@ -104,32 +61,17 @@ async function bootstrap(connectBudgetMs: number): Promise<DbStatus> {
     await waitForPostgres(connectBudgetMs);
 
     status.stage = "migrate";
-    const folder = migrationsFolder();
-    if (!fs.existsSync(path.join(folder, "meta", "_journal.json"))) {
-      throw new Error(`Drizzle migrations folder not found at ${folder} — run \`npx drizzle-kit generate\`.`);
-    }
-    status.migrationsAvailable = readMigrationFiles({ migrationsFolder: folder }).length;
+    const { applied, available } = await migrateDatabase(pool);
+    status.migrationsApplied = applied;
+    status.migrationsAvailable = available;
 
-    const lock = await pool.connect();
+    status.stage = "seed";
     try {
-      // Serialise concurrent boots (multiple workers / processes) on one advisory lock.
-      await lock.query("select pg_advisory_lock($1::bigint)", [BOOTSTRAP_LOCK]);
-      await ensureLedger();
-      status.baselined = await baselinePushedDatabase(folder);
-      await migrate(db, { migrationsFolder: folder, migrationsSchema: MIGRATIONS_SCHEMA, migrationsTable: MIGRATIONS_TABLE });
-      status.migrationsApplied = await ledgerCount();
-
-      status.stage = "seed";
-      try {
-        status.seed = await seedDatabase();
-      } catch (err) {
-        // A failed seed rolls back fully; the schema is still usable, so the app stays up.
-        status.seed = "failed";
-        status.seedError = describe(err);
-      }
-    } finally {
-      await lock.query("select pg_advisory_unlock($1::bigint)", [BOOTSTRAP_LOCK]).catch(() => undefined);
-      lock.release();
+      status.seed = await seedDatabase();
+    } catch (err) {
+      // The seed transaction rolls back both catalogue and demo data on failure.
+      status.seed = "failed";
+      status.seedError = describe(err);
     }
 
     status.ok = true;
@@ -152,8 +94,7 @@ export function ensureDatabase(): Promise<DbStatus> {
     state.__borynxDbLast = status;
     if (status.ok) {
       console.log(
-        `[borynx] database ready in ${status.durationMs}ms · migrations ${status.migrationsApplied}/${status.migrationsAvailable}` +
-          `${status.baselined ? " (baselined push-created schema)" : ""} · seed ${status.seed}`,
+        `[borynx] database ready in ${status.durationMs}ms · migrations ${status.migrationsApplied}/${status.migrationsAvailable} · seed ${status.seed}`,
       );
       if (status.seedError) console.error(`[borynx] seed failed and was rolled back: ${status.seedError}`);
     } else {

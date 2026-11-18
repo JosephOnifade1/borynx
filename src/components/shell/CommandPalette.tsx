@@ -38,7 +38,7 @@ export function CommandPalette() {
   const setOpen = useUiStore((s) => s.setPaletteOpen);
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [active, setActive] = useState(0);
+  const [selection, setSelection] = useState({ query: "", count: QUICK.length, index: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
   const debounced = useDebounced(q, 140);
 
@@ -79,7 +79,10 @@ export function CommandPalette() {
     return [...direct, ...(data?.results ?? [])];
   }, [q, data]);
 
-  useEffect(() => setActive(0), [results.length, q]);
+  const resetSelection = selection.query !== q || selection.count !== results.length;
+  const active = resetSelection ? 0 : selection.index;
+  if (resetSelection) setSelection({ query: q, count: results.length, index: 0 });
+  const setActive = (index: number) => setSelection({ query: q, count: results.length, index });
 
   const close = useCallback(() => {
     setOpen(false);
@@ -98,10 +101,10 @@ export function CommandPalette() {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((a) => Math.min(a + 1, results.length - 1));
+      setActive(Math.max(0, Math.min(active + 1, results.length - 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((a) => Math.max(a - 1, 0));
+      setActive(Math.max(active - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
       go(results[active]);
