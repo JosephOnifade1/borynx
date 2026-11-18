@@ -4,108 +4,16 @@ import { useMutation } from "@tanstack/react-query";
 import { GitBranch, LogIn, ShieldCheck, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { readStoredReferral, useSession } from "@/components/providers";
 import { clearStoredToken, storeToken } from "@/lib/browser";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-import { MarkdownToolbar } from "@/components/MarkdownToolbar";
 import { Avatar, VerifiedMark } from "@/components/primitives";
 import { api, ClientError } from "@/lib/client";
-import { LEAD_CATEGORIES, LEAD_KIND_LABEL, POST_KIND_LABEL } from "@/lib/constants";
+import { LEAD_CATEGORIES, LEAD_KIND_LABEL } from "@/lib/constants";
 import { cn, routes } from "@/lib/utils";
 import { useUiStore } from "@/store/ui";
 
 const useNotify = () => useUiStore((s) => s.notify);
-
-/* ---------------- Post composer ---------------- */
-
-export function PostComposer({ spaceSlug, spaceName }: { spaceSlug: string; spaceName: string }) {
-  const router = useRouter();
-  const notify = useNotify();
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [preview, setPreview] = useState(false);
-  const [kind, setKind] = useState<keyof typeof POST_KIND_LABEL>("discussion");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const m = useMutation({
-    mutationFn: () => api<{ href: string; newBadges: string[]; flagged: boolean }>("/api/posts", { method: "POST", json: { spaceSlug, title, body, kind } }),
-    onSuccess: (r) => {
-      notify(r.flagged ? "Published — queued for moderator review" : "Thread published", "success");
-      r.newBadges.forEach((b) => notify(`Badge unlocked: ${b}`, "success"));
-      router.push(r.href);
-      router.refresh();
-    },
-    onError: (e) => notify(e instanceof ClientError ? e.message : "Failed to publish", "error"),
-  });
-  return (
-    <form
-      className="space-y-5 px-5 py-6 sm:px-8"
-      onSubmit={(e) => {
-        e.preventDefault();
-        m.mutate();
-      }}
-    >
-      <fieldset>
-        <legend className="eyebrow mb-2">Thread type</legend>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {(Object.keys(POST_KIND_LABEL) as Array<keyof typeof POST_KIND_LABEL>).map((k) => (
-            <label key={k} className={cn("cursor-pointer rounded-md border px-3 py-2 text-[13px]", kind === k ? "border-ember bg-ember-soft/40" : "border-line hover:border-line-strong")}>
-              <input type="radio" name="kind" className="sr-only" checked={kind === k} onChange={() => setKind(k)} />
-              <span className="block font-semibold">{POST_KIND_LABEL[k]}</span>
-              <span className="num block text-[10.5px] text-ink-3">{k === "resource" || k === "help" ? "1.5× karma" : "1× karma"}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-      <label className="block">
-        <span className="eyebrow">Title</span>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} className="field mt-1.5 text-[15px] font-medium" placeholder={`A specific, searchable title for ${spaceName}`} minLength={8} maxLength={180} required />
-      </label>
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="eyebrow">Body · markdown</span>
-          <span className="num text-[11px] text-ink-4">{body.length} chars</span>
-        </div>
-        <div className="overflow-hidden rounded-md border border-line bg-surface focus-within:border-ink-3">
-          <MarkdownToolbar
-            textareaRef={textareaRef}
-            value={body}
-            onChange={setBody}
-            isPreview={preview}
-            onTogglePreview={() => setPreview((p) => !p)}
-          />
-
-          {preview ? (
-            <div className="min-h-[240px] p-4 text-[13.5px] leading-relaxed">
-              <MarkdownRenderer source={body || "*Nothing to preview yet.*"} />
-            </div>
-          ) : (
-            <textarea
-              ref={textareaRef}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={12}
-              className="field w-full border-0 bg-transparent font-mono text-[13px] rounded-none focus:ring-0"
-              placeholder={"Context, what you tried, what you need.\n\nReference spaces with b/slug and people with f/handle."}
-              required
-            />
-          )}
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11.5px] text-ink-3">Submissions pass an automated spam/scam filter and a 3-per-10-minute rate limit.</p>
-        <div className="flex gap-2">
-          <Link href={routes.space(spaceSlug)} className="btn">
-            Cancel
-          </Link>
-          <button type="submit" className="btn btn-primary" disabled={m.isPending}>
-            {m.isPending ? "Publishing…" : "Publish thread"}
-          </button>
-        </div>
-      </div>
-    </form>
-  );
-}
 
 /* ---------------- Lead composer ---------------- */
 

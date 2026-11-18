@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 import { db } from "@/db";
 import { saves, votes } from "@/db/schema";
 import { SaveButton, ShareButton, VoteRail } from "@/components/feed/controls";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { ThreadBody } from "@/components/post/ThreadBody";
 import { PageFrame, Widget } from "@/components/PageFrame";
 import { CommentThread } from "@/components/post/CommentThread";
 import { Avatar, RegionErrorBoundary, VerifiedMark } from "@/components/primitives";
@@ -130,7 +130,7 @@ export default async function PostPage({ params }: { params: Params }) {
             <VoteRail targetType="post" id={post.id} upvotes={post.upvotes} downvotes={post.downvotes} userVote={vote[0]?.value ?? 0} />
           </div>
           <div className="min-w-0 flex-1">
-            <MarkdownRenderer source={post.body} />
+            <ThreadBody source={post.body} />
             <div className="mt-5 flex flex-wrap items-center gap-1 border-t border-line pt-3">
               <div className="sm:hidden">
                 <VoteRail targetType="post" id={post.id} upvotes={post.upvotes} downvotes={post.downvotes} userVote={vote[0]?.value ?? 0} orientation="horizontal" size="sm" />

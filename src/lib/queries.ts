@@ -2,6 +2,7 @@ import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { comments, follows, leads, posts, saves, spaceAliases, spaces, userAliases, users, votes, type Space, type User } from "@/db/schema";
 import { rankItems, type RankMode } from "./sorting";
+import { threadPreview } from "./thread-preview";
 import type { AuthorSummary, CommentNode, FeedLead, FeedPage, FeedPost, SearchResult } from "./types";
 import { routes } from "./utils";
 
@@ -72,12 +73,6 @@ async function viewerPostState(viewerId: number | null, postIds: number[]): Prom
   return { votes: voteMap, saved: savedSet };
 }
 
-/** First external URL in a markdown body (used for link preview chips). */
-export function firstExternalLink(body: string): string | null {
-  const m = /https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/.exec(body);
-  return m ? m[0] : null;
-}
-
 export interface ListPostsOptions {
   mode: RankMode;
   spaceId?: number;
@@ -124,7 +119,7 @@ export async function listPosts(opts: ListPostsOptions): Promise<FeedPage<FeedPo
       id: post.id,
       slug: post.slug,
       title: post.title,
-      excerpt: excerpt(post.body),
+      ...threadPreview(post.body),
       kind: post.kind,
       upvotes: post.upvotes,
       downvotes: post.downvotes,
@@ -136,7 +131,6 @@ export async function listPosts(opts: ListPostsOptions): Promise<FeedPage<FeedPo
       space,
       userVote: state.votes.get(post.id) ?? 0,
       saved: state.saved.has(post.id),
-      primaryLink: firstExternalLink(post.body),
       href: routes.post(space.slug, post.id, post.slug),
     })),
   };

@@ -1,5 +1,5 @@
 import { notFound, permanentRedirect, redirect } from "next/navigation";
-import { PostComposer } from "@/components/forms";
+import { PostComposer } from "@/components/post/PostComposer";
 import { PageFrame, PageHeader } from "@/components/PageFrame";
 import { getCurrentUser, isSuspended, restrictionMessage } from "@/lib/auth";
 import { resolveSpace } from "@/lib/queries";
