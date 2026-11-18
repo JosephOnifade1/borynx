@@ -1,14 +1,12 @@
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { assertDemoDatabase } from "@/lib/demo-mode";
+import { assertDemoDatabase, DEFAULT_LOCAL_DATABASE_URL } from "@/lib/demo-mode";
 import * as schema from "./schema";
-
-const FALLBACK_URL = "postgresql://postgres:postgres@127.0.0.1:5432/app_db";
 
 assertDemoDatabase();
 
-const databaseUrl = process.env.DATABASE_URL ?? FALLBACK_URL;
+const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
 
 if (!process.env.DATABASE_URL) {
   console.warn("[borynx] DATABASE_URL is not set — falling back to the local default connection string");

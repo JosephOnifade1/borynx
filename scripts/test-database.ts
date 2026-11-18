@@ -9,7 +9,7 @@ import journal from "../drizzle/meta/_journal.json";
 import { LEDGER, migrateDatabase, migrationsFolder } from "../src/db/migrations";
 import type { DemoAccountMode } from "../src/lib/demo-mode";
 import { DEMO_PERSONAS } from "../src/lib/demo-personas";
-import { startLocalNext } from "./local-next";
+import { startLocalNext, startLocalProcess } from "./local-next";
 import { checkEmailStaging } from "./test-email-auth";
 import { freeLoopbackPort, LOOPBACK, withLocalPostgres } from "./local-postgres";
 
@@ -193,10 +193,27 @@ async function checkUntrackedSchema(url: string) {
   console.log("PASS untracked schema is rejected without creating a migration ledger or changing data");
 }
 
-async function withApp<T>(url: string, demo: DemoAccountMode, run: (origin: string) => Promise<T>, ready = true) {
+function startNpmDev(url: string, port: number, demoOff: boolean) {
+  const npm = process.env.npm_execpath;
+  if (!npm) throw new Error("Use npm run test:db to test the npm development command.");
+  return startLocalProcess([npm, "run", "dev", "--", "--port", String(port)], {
+    ...process.env,
+    DATABASE_URL: url,
+    // Empty values count as unset but keep a developer's .env.local from opting the test in or out.
+    BORYNX_DEMO_MODE: demoOff ? "0" : "",
+    BORYNX_DEMO_EXISTING_ACCOUNTS: "",
+    BORYNX_EMAIL_AUTH: "0",
+    BORYNX_EMAIL_SENDS: "0",
+    COOKIE_SECURE: "",
+  }, false, true);
+}
+
+async function withApp<T>(url: string, demo: DemoAccountMode | "npm-default" | "npm-disabled", run: (origin: string) => Promise<T>, ready = true) {
   const port = await freeLoopbackPort();
   const origin = `http://${LOOPBACK}:${port}`;
-  const app = startLocalNext(url, demo, ["--hostname", LOOPBACK, "--port", String(port)]);
+  const app = demo === "npm-default" || demo === "npm-disabled"
+    ? startNpmDev(url, port, demo === "npm-disabled")
+    : startLocalNext(url, demo, ["--hostname", LOOPBACK, "--port", String(port)]);
   try {
     const deadline = Date.now() + 60_000;
     while (!app.logs.includes("Ready in")) {
@@ -385,8 +402,46 @@ async function checkRestoredDemoApp(url: string) {
   console.log("PASS local existing accounts keep IDs and roles, sign in with all demo transports, and can draft a lead; rejects restricted accounts and rejects restored tokens in the preview");
 }
 
+async function checkDefaultDevSignIn(url: string) {
+  const account = await usingDatabase(url, async (pool) => {
+    await migrateDatabase(pool);
+    const { rows: [account] } = await pool.query<{ id: number; username: string }>(`insert into users (username, display_name, role, karma)
+      values ('my.existing.demo', 'Existing Demo Account', 'moderator', 57) returning id, username`);
+    return account;
+  });
+
+  await withApp(url, "npm-default", async (origin) => {
+    const page = await fetch(`${origin}/login`);
+    assert.equal(page.status, 200);
+    const body = await page.text();
+    assert.match(body, /Existing local accounts/);
+    assert.ok(body.includes(`f/${account.username}<`), "npm run dev must list the existing account without demo opt-ins");
+    assert.doesNotMatch(body, /Seeded personas|Sign-in is unavailable/);
+    const res = await jsonPost(`${origin}/api/auth/login`, { username: account.username }, { Origin: origin });
+    assert.equal(res.status, 200);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    assert.match(setCookie, /^bx_session=.+; HttpOnly; SameSite=Lax$/);
+    assert.deepEqual((await res.json()).user, account);
+    const browser = { Cookie: setCookie.split(";")[0], Origin: origin };
+    const session = await fetch(`${origin}/api/me`, { headers: browser }).then((r) => r.json());
+    assert.equal(session.transport, "cookie");
+    assert.equal(session.user.id, account.id);
+    assert.equal(session.user.role, "moderator");
+    assert.equal(session.user.karma, 57);
+    assert.equal((await fetch(`${origin}/login`, { headers: browser, redirect: "manual" })).status, 307);
+    assert.equal((await jsonPost(`${origin}/api/auth/logout`, {}, browser)).status, 200);
+    assert.deepEqual(await fetch(`${origin}/api/me`, { headers: browser }).then((r) => r.json()), { user: null, transport: "none" });
+    assert.equal((await jsonPost(`${origin}/api/auth/email`, { email: "no-send@example.test" })).status, 404);
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: account.username }, { "x-forwarded-host": "preview.example" })).status, 404);
+    await usingDatabase(url, async (pool) => {
+      assert.deepEqual((await pool.query("select id, username from users")).rows, [account]);
+    });
+  });
+  console.log("PASS npm run dev restores existing test-account sign-in in app_db without demo opt-ins, fixture seeding, or enabling email");
+}
+
 async function checkDisabledApp(url: string, oldDemoToken: string) {
-  await withApp(url, "disabled", async (origin) => {
+  await withApp(url, "npm-disabled", async (origin) => {
     await usingDatabase(url, async (pool) => {
       const { rows: [state] } = await pool.query("select (select count(*)::int from users) as users, (select count(*)::int from posts) as posts, (select count(*)::int from leads) as leads, (select count(*)::int from badges) as badges");
       assert.equal(state.users, 0);
@@ -420,7 +475,7 @@ async function checkDisabledApp(url: string, oldDemoToken: string) {
     assert.match(status, /Service status/);
     assert.doesNotMatch(status, /Drizzle migration ledger|Database & runtime/);
   });
-  console.log("PASS demo-off boot seeds no users, posts or leads; hides picker/diagnostics and rejects sign-in and all old demo transports");
+  console.log("PASS BORYNX_DEMO_MODE=0 under npm run dev seeds no users, posts or leads; hides the picker and rejects all demo credentials");
 }
 
 async function checkPhaseTwoEmailUpgrade(url: string, directory: string) {
@@ -434,6 +489,7 @@ async function checkPhaseTwoEmailUpgrade(url: string, directory: string) {
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
   if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
+  if (process.argv.includes("--local-demo-only")) return checkDefaultDevSignIn(await createDatabase("app_db"));
   await checkMigrationUpgrade(await createDatabase("borynx_demo_upgrade"), directory);
   await checkPhaseZeroUpgrade(await createDatabase("borynx_demo_phase0_upgrade"), directory);
   await checkLegacyBids(await createDatabase("borynx_demo_phase1_upgrade"), directory);
@@ -444,6 +500,7 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
   const demoUrl = await createDatabase("borynx_demo");
   const oldDemoToken = await checkDemoApp(demoUrl);
   await checkRestoredDemoApp(demoUrl);
+  await checkDefaultDevSignIn(await createDatabase("app_db"));
   await checkDisabledApp(await createDatabase("borynx_disabled"), oldDemoToken);
   const engagementUrl = await createDatabase("borynx_demo_engagement");
   await withApp(engagementUrl, "personas", (origin) => runAppTests(["src/lib/__tests__/lead-engagement.integration.test.ts"], {

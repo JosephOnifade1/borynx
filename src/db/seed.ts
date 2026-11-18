@@ -16,7 +16,7 @@ import {
   type PostKind,
 } from "@/db/schema";
 import { BADGE_DEFINITIONS } from "@/lib/badges";
-import { isDemoMode } from "@/lib/demo-mode";
+import { existingDemoAccountsRequested, isDemoMode } from "@/lib/demo-mode";
 import { DEMO_PERSONAS } from "@/lib/demo-personas";
 import { evaluateBadges, type Executor } from "@/lib/services";
 import { slugify } from "@/lib/utils";
@@ -36,7 +36,8 @@ export async function seedDatabase(): Promise<SeedResult> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${SEED_LOCK}::bigint)`);
     await seedBadges(tx);
-    if (!isDemoMode()) return "disabled";
+    // Enabling sign-in to existing accounts must not populate that database with demo fixtures.
+    if (!isDemoMode() || existingDemoAccountsRequested()) return "disabled";
 
     const [{ c }] = await tx.select({ c: count() }).from(users);
     if (c === 0) await seedContent(tx);

@@ -2,14 +2,14 @@
   "name": "nextjs-postgresql-template",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "tsx scripts/dev.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:db": "tsx scripts/test-database.ts",
-    "dev:demo": "tsx scripts/dev-demo.ts",
+    "dev:demo": "tsx scripts/dev.ts --disposable",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:prune-email": "tsx scripts/prune-email-intakes.ts"
   },
@@ -34,6 +34,7 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@next/env": "16.4.6",
     "@tailwindcss/postcss": "4.1.17",
     "@types/mdast": "^4.0.4",
     "@types/node": "22.19.15",
