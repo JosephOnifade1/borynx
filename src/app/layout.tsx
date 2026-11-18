@@ -4,8 +4,7 @@ import { DatabaseOffline } from "@/components/DatabaseOffline";
 import { Providers } from "@/components/providers";
 import { AppShell } from "@/components/shell/AppShell";
 import { ensureDatabase } from "@/db/bootstrap";
-import { getCurrentUser, toPublicUser } from "@/lib/auth";
-import { isDemoMode } from "@/lib/demo-mode";
+import { getCurrentUser, getDemoAccountMode, toPublicUser } from "@/lib/auth";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +18,7 @@ export const metadata: Metadata = {
 const themeScript = `(function(){var d=document.documentElement;try{var t=null;try{t=localStorage.getItem('bx-theme')}catch(e){}if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}if(t==='dark'){d.classList.add('dark')}}catch(e){}})();`;
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const demoMode = isDemoMode();
+  const demoMode = (await getDemoAccountMode()) !== "disabled";
   const status = await ensureDatabase();
   const user = status.ok ? await getCurrentUser().catch(() => null) : null;
   return (

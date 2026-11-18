@@ -25,7 +25,7 @@ export const privacyEnum = pgEnum("space_privacy", ["public", "restricted", "pri
 export const modRoleEnum = pgEnum("mod_role", ["moderator", "owner"]);
 export const postKindEnum = pgEnum("post_kind", ["discussion", "resource", "help", "showcase"]);
 export const leadKindEnum = pgEnum("lead_kind", ["bounty", "contract", "job"]);
-export const leadStatusEnum = pgEnum("lead_status", ["open", "in_review", "closed"]);
+export const leadStatusEnum = pgEnum("lead_status", ["open", "in_review", "closed", "awarded", "completed", "cancelled"]);
 export const leadPublicationEnum = pgEnum("lead_publication_status", ["pending_review", "changes_requested", "published", "rejected"]);
 export const leadBudgetUnitEnum = pgEnum("lead_budget_unit", ["fixed", "hourly"]);
 export const reportTargetEnum = pgEnum("report_target", ["post", "comment", "lead"]);
@@ -48,6 +48,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "karma_milestone",
   "user_follow",
   "lead_review_decision",
+  "lead_bid_accepted",
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -274,6 +275,9 @@ export const leads = pgTable(
     bidCount: integer("bid_count").default(0).notNull(),
     assignedUserId: integer("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
     acceptedBidId: integer("accepted_bid_id"),
+    awardedAt: timestamp("awarded_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    awardNeedsReview: boolean("award_needs_review").default(false).notNull(),
     isRemoved: boolean("is_removed").default(false).notNull(),
     deadlineAt: timestamp("deadline_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -303,8 +307,25 @@ export const leadBids = pgTable(
     isAccepted: boolean("is_accepted").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("lead_bids_lead_idx").on(t.leadId)],
+  (t) => [
+    index("lead_bids_lead_idx").on(t.leadId),
+    index("lead_bids_user_created_idx").on(t.userId, t.createdAt),
+    uniqueIndex("lead_bids_lead_user_idx").on(t.leadId, t.userId),
+    uniqueIndex("lead_bids_one_winner_idx").on(t.leadId).where(sql`${t.isAccepted}`),
+  ],
 );
+
+/** Migration evidence only; never served as active pitches. */
+export const leadBidArchive = pgTable("lead_bid_archive", {
+  bidId: integer("bid_id").primaryKey(),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  amount: integer("amount").notNull(),
+  message: text("message").notNull(),
+  wasAccepted: boolean("was_accepted").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  reason: varchar("reason", { length: 24 }).notNull(),
+}, (t) => [index("lead_bid_archive_lead_idx").on(t.leadId), index("lead_bid_archive_user_idx").on(t.userId)]).enableRLS();
 
 /* ------------------------------------------------------------------ */
 /* Moderation                                                          */

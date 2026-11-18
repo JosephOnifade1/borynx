@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, Bell, Briefcase, CheckCheck, MessageSquare, UserPlus } from "lucide-react";
+import { Award, Bell, Briefcase, CheckCheck, MessageSquare, Trophy, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Avatar } from "@/components/primitives";
@@ -18,6 +18,7 @@ const TYPE_ICONS = {
   comment_reply: MessageSquare,
   solution_accepted: Award,
   lead_bid: Briefcase,
+  lead_bid_accepted: Trophy,
   lead_review_decision: Briefcase,
   karma_milestone: Award,
   user_follow: UserPlus,
@@ -27,6 +28,7 @@ const TYPE_TAGS = {
   comment_reply: { label: "Reply", className: "tag" },
   solution_accepted: { label: "Solution", className: "tag tag-gold" },
   lead_bid: { label: "Lead Pitch", className: "tag tag-verdigris" },
+  lead_bid_accepted: { label: "Lead Award", className: "tag tag-gold" },
   lead_review_decision: { label: "Lead Review", className: "tag tag-gold" },
   karma_milestone: { label: "Milestone", className: "tag tag-gold" },
   user_follow: { label: "Follower", className: "tag tag-ember" },

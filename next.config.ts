@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
-import { isDemoMode } from "./src/lib/demo-mode";
+import { existingDemoAccountsRequested, isDemoMode } from "./src/lib/demo-mode";
 
 const nextConfig: NextConfig = {
-  // Allow Arena's development iframe to load the disposable demo app. Production is unaffected.
-  ...(isDemoMode() ? { allowedDevOrigins: ["127.0.0.1", "*.e2b.app"] } : {}),
+  // Allow the development iframe only for the five-persona disposable demo, never for existing accounts.
+  ...(isDemoMode() ? { allowedDevOrigins: ["127.0.0.1", ...(existingDemoAccountsRequested() ? [] : ["*.e2b.app"])] } : {}),
 };
 
 export default nextConfig;

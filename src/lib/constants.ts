@@ -1,4 +1,4 @@
-import type { ReportReason } from "@/db/schema";
+import type { Lead, ReportReason } from "@/db/schema";
 
 export const LEAD_CATEGORIES = ["Software Engineering", "Web & Mobile", "DevOps & Cloud", "UI/UX Design", "Cybersecurity", "Data Science", "AI/ML", "Product", "Consulting", "Other"] as const;
 export type LeadCategory = (typeof LEAD_CATEGORIES)[number];
@@ -32,6 +32,10 @@ export const LEAD_KIND_LABEL = {
   contract: "Contract",
   job: "Role",
 } as const;
+
+export function leadBudgetUnitLabel(unit: Lead["budgetUnit"]): string {
+  return unit === "hourly" ? "Hourly rate" : unit === "fixed" ? "Fixed amount" : "Budget unit not recorded";
+}
 
 /** Shown in the right context rail on every feed page. */
 export const PLATFORM_RULES: ReadonlyArray<string> = [

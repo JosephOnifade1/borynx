@@ -49,7 +49,7 @@ npm run dev:demo
 
 Open [http://127.0.0.1:3000/login](http://127.0.0.1:3000/login). Choose the fictional **Demo Buyer**, either **Demo Bidder**, **Demo Reviewer**, or **Demo Observer**. The command starts its own loopback PostgreSQL with a random password and applies the migration journal. It ignores any existing `DATABASE_URL` and discards the demo data on normal shutdown. Run as a normal user, not root. The embedded test database was verified on Linux x64; it requires a supported native binary for your platform.
 
-For a longer-lived **local-only** setup, create an empty PostgreSQL database named `borynx_demo` (or `borynx_demo_<suffix>`), copy `.env.example` to `.env.local`, set the loopback `DATABASE_URL` and set `BORYNX_DEMO_MODE=1`. Then run `npm run dev`. Keep the URL free of query options and never import live data into this database. `next start` (production mode) never enables demo sign-in or seeding, even if this flag is present. Real sign-in is not available yet.
+To use your **existing local demo accounts**, point `.env.local` at a dedicated loopback PostgreSQL database named `borynx_demo` (or `borynx_demo_<suffix>`) and set `BORYNX_DEMO_MODE=1` and `BORYNX_DEMO_EXISTING_ACCOUNTS=1`. Run `npm run dev -- --hostname 127.0.0.1`, then open `/login` on `127.0.0.1`. No accounts are created by sign-in. Use only test data, keep the URL free of query options, and don't expose this server through a proxy. On startup the app can apply pending migrations, so back up an existing local database first. `npm run dev:demo` still uses a throwaway database and the five persona sign-ins. Neither sign-in mode works in production.
 
 ### 3. Verify the checkout
 
@@ -61,7 +61,7 @@ npm run build
 npm run test:db          # temporary PostgreSQL + HTTP integration tests
 ```
 
-Stop the dev app before running `test:db` so its Next.js dev build directory is free. The suite starts its own database and app; no credential or database argument is needed. See the [local database runbook](./docs/LOCAL_DATABASE.md) for ledger validation, upgrade coverage, and the demo-mode boundary.
+Stop the dev app before running `test:db` so its Next.js dev build directory is free. The suite starts its own database and app; no credential or database argument is needed. See the [local database runbook](./docs/LOCAL_DATABASE.md) for ledger validation, upgrade coverage, and the demo-mode boundary. The [marketplace walkthrough](./docs/MARKETPLACE_PHASE_2.md) covers drafting, review, private pitches, one award, and recorded completion.
 
 ---
 
@@ -86,7 +86,7 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 | `npm run typecheck` | Run TypeScript compiler validation |
 | `npm run lint` | Run ESLint |
 | `npm test` | Run Vitest unit tests |
-| `npm run test:db` | Test fresh and legacy migrations and demo gating on disposable PostgreSQL |
+| `npm run test:db` | Test fresh and legacy migrations, demo gating, and marketplace and thread actions on disposable PostgreSQL |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
 | `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
 | `npx drizzle-kit studio` | Launch local visual database browser |

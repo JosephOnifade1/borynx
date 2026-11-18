@@ -2,7 +2,8 @@ import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { comments, follows, leads, posts, saves, spaceAliases, spaces, userAliases, users, votes, type Space, type User } from "@/db/schema";
 import { activePost, postSpaceAccess, type PostViewer } from "./post-access";
-import { isAcceptingBids, openPublicLead, publicLead } from "./lead-access";
+import { openPublicLead, publicLead } from "./lead-access";
+import { getLeadEngagement } from "./lead-engagement";
 import { rankItems, type RankMode } from "./sorting";
 import { threadPreview } from "./thread-preview";
 import type { AuthorSummary, CommentNode, FeedLead, FeedPage, FeedPost, SearchResult } from "./types";
@@ -253,32 +254,36 @@ export async function listLeads(opts: ListLeadsOptions): Promise<FeedPage<FeedLe
     mode: opts.mode,
     total: ranked.length,
     nextCursor: start + limit < ranked.length ? start + limit : null,
-    items: slice.map(({ lead, author, space }) => ({
-      id: lead.id,
-      slug: lead.slug,
-      title: lead.title,
-      excerpt: excerpt(lead.description, 200),
-      category: lead.category,
-      kind: lead.kind,
-      budgetMin: lead.budgetMin,
-      budgetMax: lead.budgetMax,
-      currency: lead.currency,
-      budgetUnit: lead.budgetUnit,
-      skillTags: lead.skillTags,
-      acceptingBids: isAcceptingBids(lead),
-      location: lead.location,
-      isVerified: lead.isVerified,
-      isEscrowed: lead.isEscrowed,
-      status: lead.status,
-      upvotes: lead.upvotes,
-      downvotes: lead.downvotes,
-      bidCount: lead.bidCount,
-      createdAt: lead.createdAt.toISOString(),
-      author,
-      space: space && space.id !== null ? (space as FeedLead["space"]) : null,
-      userVote: voteMap.get(lead.id) ?? 0,
-      href: routes.lead(lead.id, lead.slug),
-    })),
+    items: slice.map(({ lead, author, space }) => {
+      const engagement = getLeadEngagement(lead);
+      return {
+        id: lead.id,
+        slug: lead.slug,
+        title: lead.title,
+        excerpt: excerpt(lead.description, 200),
+        category: lead.category,
+        kind: lead.kind,
+        budgetMin: lead.budgetMin,
+        budgetMax: lead.budgetMax,
+        currency: lead.currency,
+        budgetUnit: lead.budgetUnit,
+        skillTags: lead.skillTags,
+        acceptingBids: engagement === "open",
+        engagement,
+        location: lead.location,
+        isVerified: lead.isVerified,
+        isEscrowed: lead.isEscrowed,
+        status: lead.status,
+        upvotes: lead.upvotes,
+        downvotes: lead.downvotes,
+        bidCount: lead.bidCount,
+        createdAt: lead.createdAt.toISOString(),
+        author,
+        space: space && space.id !== null ? (space as FeedLead["space"]) : null,
+        userVote: voteMap.get(lead.id) ?? 0,
+        href: routes.lead(lead.id, lead.slug),
+      };
+    }),
   };
 }
 

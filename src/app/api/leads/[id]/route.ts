@@ -4,6 +4,7 @@ import { leads } from "@/db/schema";
 import { handler, readJson } from "@/lib/api";
 import { HttpError, requireActor } from "@/lib/auth";
 import { lockLead, parseLeadId } from "@/lib/lead-access";
+import { canSelectBid } from "@/lib/lead-engagement";
 import { leadBody, parseLeadFields, parseLeadRevision } from "@/lib/lead-input";
 import { leadWriteValues, submissionResponse } from "@/lib/lead-submissions";
 import { fileAutoReport, screenContent } from "@/lib/services";
@@ -18,7 +19,7 @@ export const PATCH = handler(async (req, { params }) => {
 
   return db.transaction(async (tx) => {
     const lead = await lockLead(tx, id, and(eq(leads.authorId, actor.id), eq(leads.isRemoved, false)));
-    if (lead.publicationStatus !== "changes_requested" || lead.revision !== revision || lead.status === "closed") {
+    if (lead.publicationStatus !== "changes_requested" || lead.revision !== revision || !canSelectBid(lead)) {
       throw new HttpError(409, "This submission has changed or is not open for corrections. Reload and try again.", "lead_conflict");
     }
     const fields = parseLeadFields(body, { enforceFloor: lead.submissionKey !== null });

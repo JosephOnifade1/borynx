@@ -48,7 +48,7 @@ export function WithdrawLeadButton({ leadId }: { leadId: number }) {
   const router = useRouter();
   const [confirm, setConfirm] = useState(false);
   const withdraw = useMutation({
-    mutationFn: () => api(`/api/leads/${leadId}/status`, { method: "PATCH", json: { status: "closed" } }),
+    mutationFn: () => api(`/api/leads/${leadId}/status`, { method: "PATCH", json: { action: "withdraw" } }),
     onSuccess: () => router.refresh(),
   });
   return (

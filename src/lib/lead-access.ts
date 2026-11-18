@@ -2,6 +2,7 @@ import { and, eq, exists, gt, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { leads, spaces, type Lead } from "@/db/schema";
 import { HttpError } from "./errors";
+import { getLeadEngagement } from "./lead-engagement";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -21,7 +22,11 @@ export const leadInPublicSpace = or(
 )!;
 
 export const publicLead = and(eq(leads.publicationStatus, "published"), eq(leads.isRemoved, false), leadInPublicSpace)!;
-export const openPublicLead = and(publicLead, eq(leads.status, "open"), or(isNull(leads.deadlineAt), gt(leads.deadlineAt, sql`now()`)))!;
+export const openPublicLead = and(
+  publicLead, eq(leads.status, "open"), eq(leads.awardNeedsReview, false),
+  isNull(leads.acceptedBidId), isNull(leads.assignedUserId),
+  or(isNull(leads.deadlineAt), gt(leads.deadlineAt, sql`now()`)),
+)!;
 
 export function leadDetailAccess(userId: number | undefined, siteReviewer: boolean) {
   if (siteReviewer) return undefined;
@@ -37,6 +42,6 @@ export async function lockLead(tx: Tx, id: number, access?: SQL): Promise<Lead> 
 }
 
 /** Call only after public visibility is checked. Publication and accepting pitches are independent. */
-export function isAcceptingBids(lead: Pick<Lead, "status" | "deadlineAt">, now = Date.now()): boolean {
-  return lead.status === "open" && (lead.deadlineAt === null || lead.deadlineAt.getTime() > now);
+export function isAcceptingBids(lead: Parameters<typeof getLeadEngagement>[0], now = Date.now()): boolean {
+  return getLeadEngagement(lead, now) === "open";
 }

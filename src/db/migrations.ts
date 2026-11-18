@@ -1,7 +1,5 @@
 import path from "node:path";
 import { readMigrationFiles, type MigrationMeta } from "drizzle-orm/migrator";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import type { Pool, PoolClient } from "pg";
 
 export const MIGRATIONS_SCHEMA = "drizzle";
@@ -52,7 +50,22 @@ export async function migrateDatabase(pool: Pool, folder = migrationsFolder()) {
     if (before.length === 0) await assertNoUntrackedSchema(client);
     if (before.length === files.length) return { applied: before.length, available: files.length };
 
-    await migrate(drizzle(client), { migrationsFolder: folder, migrationsSchema: MIGRATIONS_SCHEMA, migrationsTable: MIGRATIONS_TABLE });
+    // Use Drizzle's file splitter and ledger format, but commit each file with its row. Its
+    // default Postgres migrator batches pending files into one transaction, which would prevent
+    // the legacy-award backfill from using status enum values added in the preceding migration.
+    await client.query(`create schema if not exists "${MIGRATIONS_SCHEMA}"`);
+    await client.query(`create table if not exists ${LEDGER} (id serial primary key, hash text not null, created_at bigint)`);
+    for (const file of files.slice(before.length)) {
+      await client.query("begin");
+      try {
+        for (const statement of file.sql) if (statement.trim()) await client.query(statement);
+        await client.query(`insert into ${LEDGER} (hash, created_at) values ($1, $2)`, [file.hash, file.folderMillis]);
+        await client.query("commit");
+      } catch (error) {
+        await client.query("rollback");
+        throw error;
+      }
+    }
     const after = await readLedger(client);
     assertLedgerPrefix(after, files);
     if (after.length !== files.length) throw new Error("Drizzle did not apply every pending migration.");
