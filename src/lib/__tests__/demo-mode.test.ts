@@ -6,7 +6,7 @@ const local = "postgresql://test:test@127.0.0.1:55432/borynx_demo";
 const development = { NODE_ENV: "development", BORYNX_DEMO_MODE: "1", DATABASE_URL: local };
 
 describe("demo isolation", () => {
-  it("requires an explicit dev or test opt-in and a dedicated database", () => {
+  it("keeps the persona mode opt-in and limits it to a dedicated database", () => {
     expect(isDemoMode(development)).toBe(true);
     expect(isDemoMode({ ...development, NODE_ENV: "test" })).toBe(true);
     expect(isDemoMode({ ...development, BORYNX_DEMO_MODE: undefined })).toBe(false);

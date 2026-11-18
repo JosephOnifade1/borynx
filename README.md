@@ -41,15 +41,13 @@ Use Node.js 22 (22.12 or newer within the 22.x line) and npm 10. The checkout is
 npm ci
 ```
 
-### 2. Start the disposable local demo
+### 2. Start local development
 
-```bash
-npm run dev:demo
-```
+**Already have demo accounts?** Keep your existing local PostgreSQL `DATABASE_URL` in `.env.local` (any test database name is fine). Run `npm run dev`, then open [http://127.0.0.1:3000/login](http://127.0.0.1:3000/login) and choose or type your handle. No demo flags are needed. If you copied an older `.env.example` that sets `BORYNX_DEMO_MODE=0`, remove that line to use the default; `0` remains an explicit opt-out. Your account ID and role stay the same, and startup does not add fixture accounts or posts. Pending migrations can still apply, so back up your local database first. Use a loopback connection without URL options, use test data only, and don't proxy this server.
 
-Open [http://127.0.0.1:3000/login](http://127.0.0.1:3000/login). Choose the fictional **Demo Buyer**, either **Demo Bidder**, **Demo Reviewer**, or **Demo Observer**. The command starts its own loopback PostgreSQL with a random password and applies the migration journal. It ignores any existing `DATABASE_URL` and discards the demo data on normal shutdown. Run as a normal user, not root. The embedded test database was verified on Linux x64; it requires a supported native binary for your platform.
+**Starting without a test database?** Run `npm run dev:demo` and open the same `/login` address. Choose the fictional **Demo Buyer**, either **Demo Bidder**, **Demo Reviewer**, or **Demo Observer**. This command ignores your `DATABASE_URL`, starts its own local PostgreSQL, and discards its data on normal shutdown. Run as a normal user, not root. The embedded database requires a supported native binary (verified on Linux x64).
 
-To use your **existing local demo accounts**, point `.env.local` at a dedicated loopback PostgreSQL database named `borynx_demo` (or `borynx_demo_<suffix>`) and set `BORYNX_DEMO_MODE=1` and `BORYNX_DEMO_EXISTING_ACCOUNTS=1`. Run `npm run dev -- --hostname 127.0.0.1`, then open `/login` on `127.0.0.1`. No accounts are created by sign-in. Use only test data, keep the URL free of query options, and don't expose this server through a proxy. On startup the app can apply pending migrations, so back up an existing local database first. `npm run dev:demo` still uses a throwaway database and the five persona sign-ins. Neither sign-in mode works in production.
+Both commands keep email sign-in off. Demo sign-in is unavailable in production.
 
 ### 3. Verify the checkout
 
@@ -79,8 +77,8 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 
 | Command | Action |
 |---|---|
-| `npm run dev` | Start Next.js against your configured database (demo mode is opt-in) |
-| `npm run dev:demo` | Start an isolated development app with disposable PostgreSQL |
+| `npm run dev` | Start on loopback with existing accounts from your local test database |
+| `npm run dev:demo` | Start an isolated development app with disposable PostgreSQL and fictional accounts |
 | `npm run build` | Compile optimized production build |
 | `npm run start` | Start production server |
 | `npm run typecheck` | Run TypeScript compiler validation |
