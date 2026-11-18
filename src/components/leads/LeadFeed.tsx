@@ -1,28 +1,29 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { MapPin, ShieldCheck, Users } from "lucide-react";
 import Link from "next/link";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo } from "react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { LeadRowSkeleton, VerifiedMark } from "@/components/primitives";
 import { ReportButton } from "@/components/shell/ReportModal";
 import { UserHoverCard } from "@/components/UserHoverCard";
-import { useWindowScrollMargin } from "@/components/useWindowScrollMargin";
+import { useSession } from "@/components/providers";
 import { api, queryKeys } from "@/lib/client";
-import { LEAD_CATEGORIES, LEAD_KIND_LABEL, leadBudgetUnitLabel } from "@/lib/constants";
+import { LEAD_KIND_LABEL, leadBudgetUnitLabel } from "@/lib/constants";
 import { LEAD_SKILLS } from "@/lib/lead-input";
-import { RANK_MODES, type RankMode } from "@/lib/sorting";
-import type { FeedLead, FeedPage } from "@/lib/types";
-import { cn, formatBudget, routes, timeAgo } from "@/lib/utils";
-import { ShareButton, SortSelector, VoteRail } from "../feed/controls";
+import { leadFiltersParams, type LeadFilters } from "@/lib/lead-discovery";
+import type { CursorPage, FeedLead, LeadFeedPage } from "@/lib/types";
+import { formatBudget, routes, timeAgo } from "@/lib/utils";
+import { ShareButton, VoteRail } from "../feed/controls";
 import { LeadEngagementBadge } from "./LeadEngagementBadge";
+import { LeadFilterControls } from "./LeadFilterControls";
+import { LeadSaveButton } from "./LeadSaveButton";
 
 const KIND_TAG: Record<FeedLead["kind"], string> = { bounty: "tag tag-ember", contract: "tag tag-verdigris", job: "tag tag-gold" };
 
 /** Marketplace job card: vote pill · type/category/trust badges · title · inline budget · quick apply. */
-export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
+const LeadRow = memo(function LeadRow({ lead, savedList }: { lead: FeedLead; savedList: boolean }) {
   return (
     <article className="panel flex gap-3 rounded-lg p-3">
       <div className="flex shrink-0 flex-col items-center self-start rounded-md bg-sunken px-1 py-1.5">
@@ -38,6 +39,7 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
             </span>
           )}
           <LeadEngagementBadge engagement={lead.engagement} />
+          {savedList && !lead.acceptingBids && <span className="tag">Unavailable</span>}
           {lead.space && (
             <Link href={routes.space(lead.space.slug)} className="num hover:underline">
               b/{lead.space.slug}
@@ -57,7 +59,7 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
           </time>
         </header>
 
-        <h3 className="mt-1.5 text-[16px] font-semibold leading-snug tracking-[-0.01em]">
+        <h3 className="mt-1.5 break-words text-[16px] font-semibold leading-snug tracking-[-0.01em]">
           <Link href={lead.href} className="hover:underline">
             {lead.title}
           </Link>
@@ -78,7 +80,8 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
         {lead.skillTags.length > 0 && <ul aria-label="Skills" className="mt-2 flex flex-wrap gap-1">{lead.skillTags.map((skill) => <li key={skill} className="tag">{LEAD_SKILLS[skill] ?? skill}</li>)}</ul>}
 
         <footer className="-ml-1.5 mt-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-0.5">
+          <div className="flex flex-wrap items-center gap-0.5">
+            <LeadSaveButton leadId={lead.id} saved={lead.saved} />
             <ShareButton path={lead.href} />
             <ReportButton target={{ type: "lead", id: lead.id, label: lead.title, spaceId: lead.space?.id ?? null }} />
           </div>
@@ -89,110 +92,86 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
   );
 });
 
-const LEAD_MODES = RANK_MODES.map((m) => (m.id === "new" ? { ...m, label: "Fresh" } : m));
+type ResultsPage = CursorPage<FeedLead> & { total?: number };
 
-export function LeadFeed({ initialPage, author }: { initialPage?: FeedPage<FeedLead>; author?: string } = {}) {
-  const [mode, setMode] = useState<RankMode>("new");
-  const [category, setCategory] = useState<string>("");
-  const [kind, setKind] = useState<string>("");
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const { listRef, scrollMargin } = useWindowScrollMargin();
-
-  const params = useMemo(
-    () => ({ sort: mode, category: category || undefined, kind: kind || undefined, verified: verifiedOnly ? "1" : undefined, author }),
-    [mode, category, kind, verifiedOnly, author],
-  );
-  const query = useInfiniteQuery({
-    queryKey: queryKeys.leads(params),
-    queryFn: ({ pageParam }) => {
-      const qs = new URLSearchParams({ sort: mode, cursor: String(pageParam) });
-      if (category) qs.set("category", category);
-      if (kind) qs.set("kind", kind);
-      if (verifiedOnly) qs.set("verified", "1");
-      if (author) qs.set("author", author);
-      return api<FeedPage<FeedLead>>(`/api/leads?${qs.toString()}`);
-    },
-    initialPageParam: 0,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-    initialData: initialPage && mode === initialPage.mode && !category && !kind && !verifiedOnly ? { pages: [initialPage], pageParams: [0] } : undefined,
-  });
-  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
-
-  const virtualizer = useWindowVirtualizer({
-    count: items.length + (query.hasNextPage ? 1 : 0),
-    estimateSize: () => 190,
-    overscan: 6,
-    scrollMargin,
-    initialRect: { width: 680, height: 900 },
-    initialOffset: 0,
-  });
-  const virtualItems = virtualizer.getVirtualItems();
-  useEffect(() => {
-    const last = virtualItems[virtualItems.length - 1];
-    if (last && last.index >= items.length - 1 && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
-  }, [virtualItems, items.length, query]);
-
+export function LeadFeed({ initialPage, filters, viewerId, filterError, author }: {
+  initialPage: LeadFeedPage | null;
+  filters: LeadFilters;
+  viewerId: number | null;
+  filterError?: string;
+  author?: string;
+}) {
+  const params = leadFiltersParams(filters);
+  if (author) params.set("author", author);
+  const query = params.toString();
   return (
     <section aria-label="Marketplace leads">
-      <div className="panel mb-3 flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5">
-        <SortSelector value={mode} onChange={setMode} modes={LEAD_MODES} />
-        <div className="ml-auto flex items-center gap-2">
-          <select value={kind} onChange={(e) => setKind(e.target.value)} className="field h-7 w-auto text-[12.5px]" aria-label="Lead type">
-            <option value="">All types</option>
-            <option value="bounty">Bounties</option>
-            <option value="contract">Contracts</option>
-            <option value="job">Roles</option>
-          </select>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} className="field h-7 w-auto text-[12.5px]" aria-label="Category">
-            <option value="">All disciplines</option>
-            {LEAD_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <label className={cn("inline-flex cursor-pointer items-center gap-2 pr-1 text-[12.5px] text-ink-2")}>
-            <input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} className="accent-[var(--ember)]" />
-            Verified only
-          </label>
-        </div>
-      </div>
+      <LeadFilterControls key={`controls:${filterError ?? query}`} filters={filters} filterError={filterError} author={author} />
+      {!filterError && <LeadResults key={`results:${query}`} query={query} initialPage={initialPage} initialViewerId={viewerId} author={author} />}
+    </section>
+  );
+}
 
-      {query.isPending && (
-        <div aria-busy="true">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="pb-3">
-              <LeadRowSkeleton />
-            </div>
-          ))}
+export function SavedLeadFeed({ initialPage, viewerId }: { initialPage: CursorPage<FeedLead>; viewerId: number }) {
+  return <section aria-label="Saved leads"><LeadResults initialPage={initialPage} initialViewerId={viewerId} savedList /></section>;
+}
+
+function LeadResults({ query = "", initialPage, initialViewerId, author, savedList = false }: {
+  query?: string;
+  initialPage: ResultsPage | null;
+  initialViewerId: number | null;
+  author?: string;
+  savedList?: boolean;
+}) {
+  const viewerId = useSession()?.id ?? null;
+  const sameViewer = viewerId === initialViewerId;
+  const results = useInfiniteQuery({
+    queryKey: savedList ? queryKeys.savedLeads(viewerId) : queryKeys.leads(viewerId, query),
+    queryFn: ({ pageParam, signal }) => {
+      const params = new URLSearchParams(query);
+      if (pageParam) params.set("cursor", pageParam);
+      const endpoint = savedList ? "/api/me/saved-leads" : "/api/leads";
+      return api<ResultsPage>(params.size ? `${endpoint}?${params}` : endpoint, { signal, cache: "no-store" });
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    initialData: initialPage && sameViewer ? { pages: [initialPage], pageParams: [null] } : undefined,
+    enabled: !savedList || (viewerId !== null && sameViewer),
+    gcTime: 0, // Start from the URL's first page when a filter (or account) changes.
+    ...(savedList && { staleTime: 0 }),
+  });
+  if (savedList && (!sameViewer || viewerId === null)) return null;
+  const items = results.data?.pages.flatMap((page) => page.items) ?? [];
+  const total = results.data?.pages[0]?.total;
+  return (
+    <>
+      {total !== undefined && <p role="status" className="mb-2 px-1 text-[12px] text-ink-3"><span className="num">{total}</span> {total === 1 ? "lead" : "leads"}</p>}
+      {results.isPending && <div aria-busy="true" className="space-y-3">{Array.from({ length: 3 }, (_, i) => <LeadRowSkeleton key={i} />)}</div>}
+      {results.isError && (
+        <div role="alert" className="panel mb-3 rounded-lg px-4 py-5 text-center text-[13px] text-ink-2">
+          {results.error.message}{" "}
+          <button type="button" className="btn btn-sm ml-2" onClick={() => void (results.isFetchNextPageError ? results.fetchNextPage() : results.refetch())}>Retry</button>
         </div>
       )}
-      {query.isError && (
-        <div className="panel rounded-lg px-4 py-10 text-center text-[13px] text-ink-2">
-          {query.error.message}{" "}
-          <button type="button" className="btn btn-sm ml-2" onClick={() => query.refetch()}>
-            Retry
-          </button>
-        </div>
-      )}
-      {query.isSuccess && items.length === 0 && (
-        <div className="panel rounded-lg px-6 py-14 text-center">
-          <p className="display text-[16px]">No leads match these filters</p>
-          <p className="mt-1 text-[13px] text-ink-3">{author ? "Only public listings from this profile appear here." : "Loosen a filter or post the first one."}</p>
+      {results.isSuccess && items.length === 0 && (
+        <div className="panel rounded-lg px-6 py-12 text-center">
+          <p className="display text-[16px]">{savedList ? "No saved leads" : "No leads match these filters"}</p>
+          <p className="mt-1 text-[13px] text-ink-3">{savedList ? "Save a public lead to find it here later." : author ? "Only public listings from this profile appear here." : "Try clearing a filter or check back for new leads."}</p>
+          {savedList && <Link href={routes.leads()} className="btn btn-sm mt-3">Browse leads</Link>}
         </div>
       )}
       {items.length > 0 && (
-        <div ref={listRef} role="feed" style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-          {virtualItems.map((vi) => {
-            const isLoader = vi.index >= items.length;
-            return (
-              <div key={isLoader ? "loader" : items[vi.index].id} data-index={vi.index} ref={virtualizer.measureElement} className="absolute left-0 top-0 w-full pb-3" style={{ transform: `translateY(${vi.start - virtualizer.options.scrollMargin}px)` }}>
-                {isLoader ? <LeadRowSkeleton /> : <LeadRow lead={items[vi.index]} />}
-              </div>
-            );
-          })}
+        <ul className="space-y-3">
+          {items.map((lead) => <li key={lead.id}><LeadRow lead={lead} savedList={savedList} /></li>)}
+        </ul>
+      )}
+      {results.hasNextPage && (
+        <div className="mt-3 text-center">
+          <button className="btn" type="button" disabled={results.isFetching} onClick={() => void results.fetchNextPage()}>
+            {results.isFetchingNextPage ? "Loading…" : savedList ? "Load more saved leads" : "Load more leads"}
+          </button>
         </div>
       )}
-    </section>
+    </>
   );
 }

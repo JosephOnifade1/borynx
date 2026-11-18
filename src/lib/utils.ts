@@ -62,6 +62,7 @@ export const routes = {
   leaderboard: () => "/leaderboard",
   notifications: () => "/notifications",
   saved: () => "/saved",
+  savedLeads: () => "/saved?tab=leads",
   settings: () => "/settings",
   settingsProjects: () => "/settings/projects",
   achievements: () => "/achievements",

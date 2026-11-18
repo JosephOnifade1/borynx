@@ -2,11 +2,10 @@ import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { comments, follows, leads, posts, saves, spaceAliases, spaces, userAliases, users, votes, type Space, type User } from "@/db/schema";
 import { activePost, postSpaceAccess, type PostViewer } from "./post-access";
-import { openPublicLead, publicLead } from "./lead-access";
-import { getLeadEngagement } from "./lead-engagement";
+import { publicLead } from "./lead-access";
 import { rankItems, type RankMode } from "./sorting";
 import { threadPreview } from "./thread-preview";
-import type { AuthorSummary, CommentNode, FeedLead, FeedPage, FeedPost, SearchResult } from "./types";
+import type { AuthorSummary, CommentNode, FeedPage, FeedPost, SearchResult } from "./types";
 import { routes } from "./utils";
 
 export const FEED_WINDOW = 400;
@@ -19,11 +18,6 @@ const authorCols = {
   avatarHue: users.avatarHue,
   isVerified: users.isVerified,
   karma: users.karma,
-};
-
-const excerpt = (body: string, n: number = 180): string => {
-  const flat = body.replace(/```[\s\S]*?```/g, "").replace(/[#*`>|_-]+/g, " ").replace(/\s+/g, " ").trim();
-  return flat.length > n ? `${flat.slice(0, n - 1).trimEnd()}…` : flat;
 };
 
 /* ------------------------------------------------------------------ */
@@ -201,90 +195,6 @@ export async function listComments(postId: number, viewerId: number | null): Pro
   };
   walk(null, 0);
   return out;
-}
-
-/* ------------------------------------------------------------------ */
-/* Leads                                                               */
-/* ------------------------------------------------------------------ */
-
-export interface ListLeadsOptions {
-  openOnly?: boolean;
-  mode: RankMode;
-  category?: string;
-  kind?: string;
-  verifiedOnly?: boolean;
-  authorId?: number;
-  cursor?: number;
-  viewerId: number | null;
-  limit?: number;
-}
-
-export async function listLeads(opts: ListLeadsOptions): Promise<FeedPage<FeedLead>> {
-  const limit = opts.limit ?? PAGE_SIZE;
-  const conditions = [opts.openOnly ? openPublicLead : publicLead];
-  if (opts.category) conditions.push(eq(leads.category, opts.category));
-  if (opts.kind === "bounty" || opts.kind === "contract" || opts.kind === "job") conditions.push(eq(leads.kind, opts.kind));
-  if (opts.verifiedOnly) conditions.push(eq(leads.isVerified, true));
-  if (opts.authorId) conditions.push(eq(leads.authorId, opts.authorId));
-
-  const rows = await db
-    .select({ lead: leads, author: authorCols, space: { id: spaces.id, slug: spaces.slug, name: spaces.name, accentHue: spaces.accentHue } })
-    .from(leads)
-    .innerJoin(users, eq(users.id, leads.authorId))
-    .leftJoin(spaces, eq(spaces.id, leads.spaceId))
-    .where(and(...conditions))
-    .orderBy(desc(leads.createdAt))
-    .limit(FEED_WINDOW);
-
-  const ranked = rankItems(
-    rows.map((r) => ({ ...r, upvotes: r.lead.upvotes, downvotes: r.lead.downvotes, commentCount: r.lead.bidCount, createdAt: r.lead.createdAt })),
-    opts.mode,
-  );
-  const start = opts.cursor ?? 0;
-  const slice = ranked.slice(start, start + limit);
-  const voteMap = new Map<number, number>();
-  if (opts.viewerId && slice.length) {
-    const vs = await db
-      .select({ targetId: votes.targetId, value: votes.value })
-      .from(votes)
-      .where(and(eq(votes.userId, opts.viewerId), eq(votes.targetType, "lead"), inArray(votes.targetId, slice.map((r) => r.lead.id))));
-    for (const v of vs) voteMap.set(v.targetId, v.value);
-  }
-  return {
-    mode: opts.mode,
-    total: ranked.length,
-    nextCursor: start + limit < ranked.length ? start + limit : null,
-    items: slice.map(({ lead, author, space }) => {
-      const engagement = getLeadEngagement(lead);
-      return {
-        id: lead.id,
-        slug: lead.slug,
-        title: lead.title,
-        excerpt: excerpt(lead.description, 200),
-        category: lead.category,
-        kind: lead.kind,
-        budgetMin: lead.budgetMin,
-        budgetMax: lead.budgetMax,
-        currency: lead.currency,
-        budgetUnit: lead.budgetUnit,
-        skillTags: lead.skillTags,
-        acceptingBids: engagement === "open",
-        engagement,
-        location: lead.location,
-        isVerified: lead.isVerified,
-        isEscrowed: lead.isEscrowed,
-        status: lead.status,
-        upvotes: lead.upvotes,
-        downvotes: lead.downvotes,
-        bidCount: lead.bidCount,
-        createdAt: lead.createdAt.toISOString(),
-        author,
-        space: space && space.id !== null ? (space as FeedLead["space"]) : null,
-        userVote: voteMap.get(lead.id) ?? 0,
-        href: routes.lead(lead.id, lead.slug),
-      };
-    }),
-  };
 }
 
 /* ------------------------------------------------------------------ */

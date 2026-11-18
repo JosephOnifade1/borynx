@@ -11,7 +11,7 @@ Borynx is built specifically for tech freelancers (Engineering, Design, DevOps, 
 
 ### Key Capabilities
 - **Vertical Communities (`/b`):** Focused working rooms for specialized disciplines with custom rules, brand hues, and access policies.
-- **Leads Marketplace (`/l`):** Contracts, bounties, and roles with budget tracking, verified trust signals, pitch submissions, and award workflows.
+- **Leads Marketplace (`/l`):** Find contracts, bounties, and roles with budget and skill filters, save leads privately, and manage pitches and awards. See the [discovery walkthrough](./docs/MARKETPLACE_PHASE_5.md).
 - **Practitioner Leaderboard (`/leaderboard`):** Community ranking based on earned karma, accepted solutions, and peer follows.
 - **Notification Engine (`/notifications`):** In-app real-time notifications for replies, solution acceptance, lead bids, and new followers.
 - **Adaptive Profiles (`/f/:username`):** Show hiring activity, freelance availability and rates, and up to six curated [portfolio projects](./docs/MARKETPLACE_PHASE_4_PROJECTS.md).
@@ -89,6 +89,7 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 | `npm run test:db` | Test migrations, demo sign-in, marketplace and thread actions, profile settings, and staged email intake on disposable services |
 | `npm run test:db -- --profiles-only` | Verify adaptive profiles and privacy on an upgraded disposable database |
 | `npm run test:db -- --projects-only` | Verify portfolio privacy, cover handling, moderation, and ordering on disposable services |
+| `npm run test:db -- --lead-discovery-only` | Verify lead filtering, pagination, private saves, and the Phase 5 upgrade |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
 | `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
 | `npm run db:prune-email` | Scrub expired intake content and prune receipts, send reservations and sessions on the explicitly configured database |

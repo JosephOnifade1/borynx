@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { ensureDatabase } from "@/db/bootstrap";
 import { errorResponse, HttpError } from "./auth";
-import { assertMutationOrigin } from "./email-auth/policy";
+import { assertMutationOrigin, emailAuthConfig } from "./email-auth/policy";
 
 type Params = Record<string, string>;
 type Handler = (req: NextRequest, ctx: { params: Params }) => Promise<Response>;
@@ -27,6 +27,18 @@ export function handler(fn: Handler) {
       return errorResponse(err);
     }
   };
+}
+
+export function privateJson(data: unknown): Response {
+  return Response.json(data, { headers: { "Cache-Control": "private, no-store" } });
+}
+
+/** Require an exact browser origin even in local demo mode for private writes. */
+export function assertSameOrigin(req: Request): void {
+  const protocol = req.headers.get("x-forwarded-proto") === "https" ? "https:" : new URL(req.url).protocol;
+  const host = req.headers.get("host");
+  const expected = emailAuthConfig()?.origin ?? (host ? `${protocol}//${host}` : null);
+  if (!expected || req.headers.get("origin") !== expected) throw new HttpError(403, "This action must come from Borynx", "invalid_origin");
 }
 
 export async function readJson<T extends Record<string, unknown>>(req: NextRequest): Promise<T> {

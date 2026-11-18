@@ -1,8 +1,8 @@
 # Local database and demo sign-in
 
-Phase 0 established the setup and safety checks; this runbook covers the journal through Phase 4 portfolio projects (`0010`). The checks below use fictional rows in disposable PostgreSQL only.
+Phase 0 established the setup and safety checks; this runbook covers the journal through Phase 5 lead discovery and saves (`0011`). The checks below use fictional rows in disposable PostgreSQL only.
 
-> **Known baseline regression:** `65fc188` on `main` loosened demo host/database boundaries and broke the seeded-persona and opt-out checks. The intended boundaries below are not reliable on that baseline. Use only disposable loopback data, do not expose demo servers through a proxy, and fix demo isolation before a hosted rollout. The targeted portfolio suite (`--projects-only`) isolates its own loopback app and database.
+> **Known baseline regression:** `65fc188` on `main` loosened demo host/database boundaries and broke the seeded-persona and opt-out checks. The intended boundaries below are not reliable on that baseline. Use only disposable loopback data, do not expose demo servers through a proxy, and fix demo isolation before a hosted rollout. Targeted suites such as `--projects-only` and `--lead-discovery-only` isolate their own loopback app and database.
 
 ## Quick setup
 
@@ -42,6 +42,7 @@ A fresh database can have an empty ledger. A database with untracked tables/enum
 | `npm run test:db -- --local-demo-only` | Boots plain `npm run dev` against a temporary database with a pre-existing test account. Checks the picker, original ID and role, cookie and sign-out, and that no fixture users are added. |
 | `npm run test:db -- --profiles-only` | Upgrades a disposable `0008` database and exercises adaptive profiles over HTTP, including intake-name privacy and public lead counts. |
 | `npm run test:db -- --projects-only` | Verifies a fresh schema and the `0009` → `0010` upgrade, private storage, and portfolio boundaries over HTTP. |
-| `npm run test:db` | Runs the local dev regression, five-persona and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, `0007`, `0008`, and `0009`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, lead-engagement, adaptive-profile, and portfolio HTTP suites plus email staging with a local HTTPS provider double. The baseline demo regression currently prevents a full pass. |
+| `npm run test:db -- --lead-discovery-only` | Verifies fresh and `0010` → `0011` migrations, exact budget and skill paging, and private bookmarks on disposable data. |
+| `npm run test:db` | Runs the local dev regression, five-persona and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, `0007`, `0008`, `0009`, and `0010`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, lead-engagement, adaptive-profile, portfolio, and lead-discovery HTTP suites plus email staging with a local HTTPS provider double. The baseline demo regression currently prevents a full pass. |
 
 `test:db` requires `openssl` for the throwaway TLS fixture and does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the HTTP integration cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.

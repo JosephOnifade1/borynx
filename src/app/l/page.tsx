@@ -8,17 +8,20 @@ import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { getCurrentUser } from "@/lib/auth";
 import { LEAD_CATEGORIES } from "@/lib/constants";
 import { openPublicLead } from "@/lib/lead-access";
-import { listLeads } from "@/lib/queries";
+import { readLeadPageFilters } from "@/lib/lead-discovery";
+import { listLeads } from "@/lib/lead-feed";
 import { routes } from "@/lib/utils";
 
 export const metadata = { title: "Leads" };
 
-export default async function LeadsPage() {
-  const viewer = await getCurrentUser();
+export default async function LeadsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const [viewer, search] = await Promise.all([getCurrentUser(), searchParams]);
+  const { filters, filterError } = readLeadPageFilters(search);
+  const viewerId = viewer?.id ?? null;
   const [[stats], byCategory, initialPage] = await Promise.all([
     db.select({ open: count(), verified: sql<number>`count(*) filter (where ${leads.isVerified})` }).from(leads).where(openPublicLead),
     db.select({ category: leads.category, c: count() }).from(leads).where(openPublicLead).groupBy(leads.category),
-    listLeads({ mode: "new", viewerId: viewer?.id ?? null }),
+    filterError ? null : listLeads({ filters, viewerId }),
   ]);
   const catMap = new Map(byCategory.map((r) => [r.category, r.c]));
   return (
@@ -30,9 +33,12 @@ export default async function LeadsPage() {
           title="Leads & bounties"
           description="Find contracts, bounties, and roles across tech. New leads appear here only after a site reviewer publishes them."
           actions={
-            <Link href={routes.leadNew()} className="btn btn-primary">
-              <Plus size={14} /> Draft a lead
-            </Link>
+            <>
+              {viewer && <Link href={routes.savedLeads()} className="btn" prefetch={false}>Saved leads</Link>}
+              <Link href={routes.leadNew()} className="btn btn-primary">
+                <Plus size={14} /> Draft a lead
+              </Link>
+            </>
           }
         />
       }
@@ -66,7 +72,7 @@ export default async function LeadsPage() {
         </>
       }
     >
-      <LeadFeed initialPage={initialPage} />
+      <LeadFeed initialPage={initialPage} viewerId={viewerId} filters={filters} filterError={filterError} />
     </PageFrame>
   );
 }

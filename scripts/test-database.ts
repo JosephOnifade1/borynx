@@ -552,11 +552,62 @@ async function checkPortfolioUpgrade(url: string, directory: string) {
   console.log("PASS adaptive profile upgrade preserves owner data and keeps portfolio drafts, covers and decisions in app-only tables");
 }
 
+async function checkLeadDiscoveryUpgrade(url: string, directory: string) {
+  const previous = await copyJournalPrefix(directory, "portfolio-migrations", 11);
+  await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, previous.folder), { applied: previous.count, available: previous.count });
+    const { rows: [poster, saver] } = await pool.query<{ id: number }>(`insert into users (username, display_name) values
+      ('discovery-poster', 'Discovery Poster'), ('discovery-saver', 'Discovery Saver'), ('discovery-visitor', 'Discovery Visitor') returning id`);
+    await pool.query("insert into users (username, display_name, role) values ('discovery-reviewer', 'Discovery Reviewer', 'moderator')");
+    const { rows: [space] } = await pool.query("insert into spaces (slug, name, privacy) values ('discovery-fixtures', 'Discovery Fixtures', 'public') returning id");
+    const { rows: [thread] } = await pool.query(`insert into posts (space_id, author_id, slug, title, body) values
+      ($1, $2, 'discovery-existing-thread', 'Existing saved thread fixture', 'A saved thread predating lead bookmarks.') returning id`, [space.id, poster.id]);
+    await pool.query("insert into saves (user_id, post_id) values ($1, $2)", [saver.id, thread.id]);
+    const { rows: [legacy] } = await pool.query(`insert into leads
+      (author_id, slug, title, description, category, budget_min, budget_max, currency, skill_tags, publication_status, created_at) values
+      ($1, 'discovery-legacy-lead', 'Legacy Unknown Unit Fixture', 'A public lead without a recorded budget unit.', 'Software Engineering', 50, 300, 'USD', ARRAY['react'], 'published', '2020-01-01T00:00:00Z')
+      returning id, budget_unit, budget_min, budget_max, currency, publication_status`, [poster.id]);
+    await pool.query(`insert into borynx_private.portfolio_projects (user_id, title, description, tech_tags, position)
+      values ($1, 'Existing portfolio', 'This private portfolio remains in place after migration.', ARRAY['react'], 0)`, [saver.id]);
+    await pool.query(`do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
+      if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+    end $$;
+    alter default privileges in schema borynx_private grant select, insert, update, delete on tables to PUBLIC, anon, authenticated;`);
+
+    const expected = { applied: journal.entries.length, available: journal.entries.length };
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual((await pool.query(`select id, budget_unit, budget_min, budget_max, currency, publication_status
+      from leads where id = $1`, [legacy.id])).rows[0], legacy);
+    assert.deepEqual((await pool.query("select user_id, post_id from saves")).rows, [{ user_id: saver.id, post_id: thread.id }]);
+    assert.equal((await pool.query("select count(*)::int as n from borynx_private.portfolio_projects")).rows[0].n, 1);
+    const { rows: [privacy] } = await pool.query(`select relrowsecurity,
+      has_table_privilege('anon', oid, 'select,insert,update,delete') as anon_access,
+      has_table_privilege('authenticated', oid, 'select,insert,update,delete') as authenticated_access,
+      exists (select 1 from aclexplode(relacl) where grantee = 0) as public_access
+      from pg_class where oid = 'borynx_private.lead_saves'::regclass`);
+    assert.deepEqual(privacy, { relrowsecurity: true, anon_access: false, authenticated_access: false, public_access: false });
+    assert.equal((await pool.query("select count(*)::int as n from borynx_private.lead_saves")).rows[0].n, 0);
+  });
+  await withApp(url, "npm-default", (origin) => runAppTests(["src/lib/__tests__/lead-discovery.integration.test.ts"], {
+    BORYNX_DISCOVERY_TEST_ORIGIN: origin, BORYNX_DISCOVERY_TEST_DATABASE_URL: url,
+  }));
+  console.log("PASS 0010 → 0011 preserves legacy budgets, thread saves and portfolios; lead bookmarks are app-only");
+}
+
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
   if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   if (process.argv.includes("--local-demo-only")) return checkDefaultDevSignIn(await createDatabase("app_db"));
   if (process.argv.includes("--profiles-only")) return checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
+  if (process.argv.includes("--lead-discovery-only")) {
+    await usingDatabase(await createDatabase("borynx_demo_lead_discovery_fresh"), async (pool) => {
+      assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+      assert.equal((await pool.query("select count(*)::int as n from borynx_private.lead_saves")).rows[0].n, 0);
+    });
+    return checkLeadDiscoveryUpgrade(await createDatabase("borynx_demo_lead_discovery"), directory);
+  }
   if (process.argv.includes("--projects-only")) {
     await usingDatabase(await createDatabase("borynx_demo_projects_fresh"), async (pool) => {
       assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
@@ -583,4 +634,5 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
   await checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   await checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
   await checkPortfolioUpgrade(await createDatabase("borynx_demo_projects"), directory);
+  await checkLeadDiscoveryUpgrade(await createDatabase("borynx_demo_lead_discovery"), directory);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

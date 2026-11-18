@@ -1,14 +1,9 @@
-import { handler } from "./api";
-import { emailAuthConfig } from "./email-auth/policy";
+import { assertSameOrigin, handler } from "./api";
 import { HttpError } from "./errors";
 
 /** Same-origin writes in all supported modes, and never log submitted draft content. */
 export const portfolioHandler: typeof handler = (fn) => handler(async (req, ctx) => {
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    const protocol = req.headers.get("x-forwarded-proto") === "https" ? "https:" : new URL(req.url).protocol;
-    const expected = emailAuthConfig()?.origin ?? `${protocol}//${req.headers.get("host")}`;
-    if (req.headers.get("origin") !== expected) throw new HttpError(403, "This action must come from Borynx", "invalid_origin");
-  }
+  if (req.method !== "GET" && req.method !== "HEAD") assertSameOrigin(req);
   try {
     return await fn(req, ctx);
   } catch (error) {

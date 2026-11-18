@@ -19,10 +19,12 @@ import { activePost, postSpaceAccess } from "@/lib/post-access";
 import { toEditableProfile, toProfilePreferences } from "@/lib/profile-input";
 import { countPublicProjects, listPublicProjects } from "@/lib/portfolio";
 import { getPublicHiringCounts } from "@/lib/profile-leads";
-import { listLeads, listPosts, resolveUser } from "@/lib/queries";
+import { readLeadPageFilters } from "@/lib/lead-discovery";
+import { listLeads } from "@/lib/lead-feed";
+import { listPosts, resolveUser } from "@/lib/queries";
 import { isRankMode } from "@/lib/sorting";
 import { getUserBadges } from "@/lib/services";
-import type { FeedLead, FeedPage, FeedPost } from "@/lib/types";
+import type { FeedPage, FeedPost } from "@/lib/types";
 import { cn, routes, timeAgo } from "@/lib/utils";
 
 type Params = Promise<{ username: string }>;
@@ -45,9 +47,10 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
  *   identity, marketplace signals and a public activity feed, without separate account types
  * Legacy /u/… is rewritten by the proxy; renamed handles resolve through user_aliases.
  */
-export default async function ProfilePage({ params, searchParams }: { params: Params; searchParams: Promise<{ tab?: string; sort?: string }> }) {
+export default async function ProfilePage({ params, searchParams }: { params: Params; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { username } = await params;
-  const { tab: tabParam, sort } = await searchParams;
+  const search = await searchParams;
+  const { tab: tabParam, sort } = search;
   const mode = isRankMode(sort) ? sort : "new";
   const resolved = await resolveUser(username);
   if (!resolved) notFound();
@@ -80,7 +83,9 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
   const tabs: Tab[] = hiringFocus ? ["leads", "posts", "solved", "projects"] : ["posts", "projects", "solved", "leads"];
   const tab: Tab = tabParam === "posts" || tabParam === "solved" || tabParam === "leads" || tabParam === "projects" ? tabParam : tabs[0];
   const counts: Record<Tab, number> = { posts: threads.c, solved: solvedThreads.c, leads: hiring.published, projects: projectItems?.length ?? projectCount ?? 0 };
-  const leadPage: FeedPage<FeedLead> | null = tab === "leads" ? await listLeads({ mode: "new", authorId: profile.id, viewerId: viewer?.id ?? null }) : null;
+  const leadDiscovery = tab === "leads" ? readLeadPageFilters(search) : null;
+  const viewerId = viewer?.id ?? null;
+  const leadPage = leadDiscovery && !leadDiscovery.filterError ? await listLeads({ filters: leadDiscovery.filters, authorId: profile.id, viewerId }) : null;
   const postPage: FeedPage<FeedPost> | null = tab === "posts" || tab === "solved" ? await listPosts({ mode, authorId: profile.id, solvedOnly: tab === "solved", viewer }) : null;
   const hue = profile.avatarHue;
   const base = routes.profile(profile.username);
@@ -213,8 +218,8 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
 
       {projectItems ? (
         <ProfileProjects projects={projectItems} owner={isSelf} canModerate={Boolean(viewer && staff && !isSelf && !isSuspended(viewer))} />
-      ) : leadPage ? (
-        <LeadFeed author={profile.username} initialPage={leadPage} />
+      ) : leadDiscovery ? (
+        <LeadFeed author={profile.username} initialPage={leadPage} viewerId={viewerId} {...leadDiscovery} />
       ) : (
         postPage && (
           <PostFeed

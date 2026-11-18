@@ -371,12 +371,28 @@ export const leads = pgTable(
     index("leads_created_idx").on(t.createdAt),
     index("leads_category_idx").on(t.category),
     index("leads_publication_created_idx").on(t.publicationStatus, t.createdAt),
+    index("leads_public_recent_idx").on(t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.publicationStatus} = 'published' and ${t.isRemoved} = false`),
+    index("leads_public_open_recent_idx").on(t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.publicationStatus} = 'published' and ${t.isRemoved} = false and ${t.status} = 'open'
+        and ${t.awardNeedsReview} = false and ${t.acceptedBidId} is null and ${t.assignedUserId} is null`),
     index("leads_public_author_idx").on(t.authorId).where(sql`${t.publicationStatus} = 'published' and ${t.isRemoved} = false`),
     uniqueIndex("leads_author_submission_idx").on(t.authorId, t.submissionKey).where(sql`${t.submissionKey} is not null`),
     check("leads_skill_tags_max", sql`cardinality(${t.skillTags}) <= 6`),
     check("leads_revision_positive", sql`${t.revision} >= 1`),
   ],
 );
+
+/** Personal bookmarks are app-only; thread saves stay in their existing table. */
+export const leadSaves = privateSchema.table("lead_saves", {
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.leadId] }),
+  index("lead_saves_user_recent_idx").on(t.userId, t.createdAt.desc().nullsFirst(), t.leadId.desc().nullsFirst()),
+  index("lead_saves_lead_idx").on(t.leadId),
+]).enableRLS();
 
 /** Unowned, short-lived drafts are separate from marketplace leads and queues. */
 export const leadIntakes = privateSchema.table("lead_intakes", {

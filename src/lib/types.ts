@@ -47,6 +47,16 @@ export interface FeedPage<T> {
   total: number;
 }
 
+export interface CursorPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+export interface LeadFeedPage extends CursorPage<FeedLead> {
+  mode: RankMode;
+  total: number;
+}
+
 export interface FeedLead {
   id: number;
   slug: string;
@@ -72,6 +82,8 @@ export interface FeedLead {
   author: AuthorSummary;
   space: SpaceSummary | null;
   userVote: number;
+  /** Present only for the signed-in viewer, never a public count. */
+  saved?: boolean;
   href: string;
 }
 
