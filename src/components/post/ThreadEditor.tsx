@@ -1,6 +1,6 @@
 "use client";
 
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { Bold, Code, FileCode, Heading2, Italic, Link2, List, ListOrdered, Quote, Redo2, Undo2, type LucideIcon } from "lucide-react";
 import { useId, useState, type KeyboardEvent } from "react";
@@ -11,10 +11,10 @@ import { cn } from "@/lib/utils";
 const extensions = threadEditorExtensions();
 const hint = "Share the context, what you tried, and what you need.";
 
-export function useThreadEditor() {
+export function useThreadEditor(initialContent?: JSONContent) {
   return useEditor({
     extensions,
-    content: { type: "doc", content: [{ type: "paragraph" }] },
+    content: initialContent ?? { type: "doc", content: [{ type: "paragraph" }] },
     immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     editorProps: {

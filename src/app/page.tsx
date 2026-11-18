@@ -20,7 +20,7 @@ export default async function HomePage({
   const initialPage = await listPosts({
     mode,
     followingUserId: isFollowingFeed && user ? user.id : undefined,
-    viewerId: user?.id ?? null,
+    viewer: user,
   });
 
   return (

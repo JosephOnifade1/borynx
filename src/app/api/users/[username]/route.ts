@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { and, count, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { comments, follows, posts } from "@/db/schema";
+import { comments, follows, posts, spaces } from "@/db/schema";
 import { handler } from "@/lib/api";
 import { getCurrentUser, HttpError, toPublicUser } from "@/lib/auth";
+import { activePost, postSpaceAccess } from "@/lib/post-access";
 import { resolveUser } from "@/lib/queries";
 import { getUserBadges } from "@/lib/services";
 import type { HoverCardUser } from "@/lib/types";
@@ -19,7 +20,7 @@ export const GET = handler(async (_req: NextRequest, { params }) => {
 
   const [badgeRows, [p], [s], [f], isFollowingRow] = await Promise.all([
     getUserBadges(user.id),
-    db.select({ c: count() }).from(posts).where(and(eq(posts.authorId, user.id), eq(posts.isRemoved, false))),
+    db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, user.id), activePost, postSpaceAccess(viewer))),
     db.select({ c: count() }).from(comments).where(and(eq(comments.authorId, user.id), eq(comments.isSolution, true))),
     db.select({ c: count() }).from(follows).where(eq(follows.followingId, user.id)),
     viewer

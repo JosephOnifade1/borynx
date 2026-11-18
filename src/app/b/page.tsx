@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { memberships, posts, spaces } from "@/db/schema";
 import { PageFrame, PageHeader } from "@/components/PageFrame";
 import { getCurrentUser } from "@/lib/auth";
+import { activePost } from "@/lib/post-access";
 import { routes } from "@/lib/utils";
 
 export const metadata = { title: "Spaces" };
@@ -14,7 +15,7 @@ export default async function SpacesDirectory() {
   const since = new Date(Date.now() - 7 * 86_400_000);
   const [all, weekly, mine] = await Promise.all([
     db.select().from(spaces).orderBy(desc(spaces.memberCount)),
-    db.select({ spaceId: posts.spaceId, c: count() }).from(posts).where(and(eq(posts.isRemoved, false), gte(posts.createdAt, since))).groupBy(posts.spaceId),
+    db.select({ spaceId: posts.spaceId, c: count() }).from(posts).where(and(activePost, gte(posts.createdAt, since))).groupBy(posts.spaceId),
     user ? db.select({ spaceId: memberships.spaceId }).from(memberships).where(eq(memberships.userId, user.id)) : Promise.resolve([]),
   ]);
   const weeklyMap = new Map(weekly.map((w) => [w.spaceId, w.c]));

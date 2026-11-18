@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { comments, leads, modActions, posts, reports, spaces, users } from "@/db/schema";
 import { ReportDecision, UserDiscipline } from "@/components/mod/ModActions";
+import { ReportedPostEvidence } from "@/components/mod/ReportedPostEvidence";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { Avatar } from "@/components/primitives";
 import { getCurrentUser, isSiteStaff } from "@/lib/auth";
@@ -141,6 +142,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
                 )}
               </p>
               {r.details && <p className="mt-1 text-[12.5px] text-ink-2">{r.details}</p>}
+              {r.targetType === "post" && <ReportedPostEvidence snapshot={r.postSnapshot} />}
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                 {status === "pending" && <ReportDecision reportId={r.id} />}
                 {author && (

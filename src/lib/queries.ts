@@ -1,6 +1,7 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { comments, follows, leads, posts, saves, spaceAliases, spaces, userAliases, users, votes, type Space, type User } from "@/db/schema";
+import { activePost, postSpaceAccess, type PostViewer } from "./post-access";
 import { rankItems, type RankMode } from "./sorting";
 import { threadPreview } from "./thread-preview";
 import type { AuthorSummary, CommentNode, FeedLead, FeedPage, FeedPost, SearchResult } from "./types";
@@ -81,13 +82,13 @@ export interface ListPostsOptions {
   followingUserId?: number;
   solvedOnly?: boolean;
   cursor?: number;
-  viewerId: number | null;
+  viewer: PostViewer | null;
   limit?: number;
 }
 
 export async function listPosts(opts: ListPostsOptions): Promise<FeedPage<FeedPost>> {
   const limit = opts.limit ?? PAGE_SIZE;
-  const conditions = [eq(posts.isRemoved, false)];
+  const conditions = [activePost, postSpaceAccess(opts.viewer)];
   if (opts.spaceId) conditions.push(eq(posts.spaceId, opts.spaceId));
   if (opts.authorId) conditions.push(eq(posts.authorId, opts.authorId));
   if (opts.solvedOnly) conditions.push(eq(posts.isSolved, true));
@@ -109,7 +110,7 @@ export async function listPosts(opts: ListPostsOptions): Promise<FeedPage<FeedPo
   const pinnedFirst = [...ranked].sort((a, b) => Number(b.post.isPinned) - Number(a.post.isPinned));
   const start = opts.cursor ?? 0;
   const slice = pinnedFirst.slice(start, start + limit);
-  const state = await viewerPostState(opts.viewerId, slice.map((r) => r.post.id));
+  const state = await viewerPostState(opts.viewer?.id ?? null, slice.map((r) => r.post.id));
 
   return {
     mode: opts.mode,
@@ -136,13 +137,13 @@ export async function listPosts(opts: ListPostsOptions): Promise<FeedPage<FeedPo
   };
 }
 
-export async function getPostById(id: number) {
+export async function getPostById(id: number, viewer: PostViewer | null) {
   const [row] = await db
     .select({ post: posts, author: authorCols, space: spaces })
     .from(posts)
     .innerJoin(users, eq(users.id, posts.authorId))
     .innerJoin(spaces, eq(spaces.id, posts.spaceId))
-    .where(eq(posts.id, id))
+    .where(and(eq(posts.id, id), postSpaceAccess(viewer)))
     .limit(1);
   return row ?? null;
 }
@@ -280,14 +281,14 @@ export async function listLeads(opts: ListLeadsOptions): Promise<FeedPage<FeedLe
 /* Search                                                              */
 /* ------------------------------------------------------------------ */
 
-export async function searchAll(q: string): Promise<SearchResult[]> {
+export async function searchAll(q: string, viewer: PostViewer | null): Promise<SearchResult[]> {
   const term = `%${q.trim()}%`;
   if (q.trim().length < 1) return [];
   const [sp, us, ld, ps] = await Promise.all([
     db.select({ id: spaces.id, slug: spaces.slug, name: spaces.name, tagline: spaces.tagline }).from(spaces).where(or(ilike(spaces.slug, term), ilike(spaces.name, term))).limit(5),
     db.select({ id: users.id, username: users.username, displayName: users.displayName, headline: users.headline }).from(users).where(and(eq(users.isBanned, false), or(ilike(users.username, term), ilike(users.displayName, term)))).limit(5),
     db.select({ id: leads.id, slug: leads.slug, title: leads.title, category: leads.category }).from(leads).where(and(eq(leads.isRemoved, false), ilike(leads.title, term))).limit(5),
-    db.select({ id: posts.id, slug: posts.slug, title: posts.title, spaceSlug: spaces.slug }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.isRemoved, false), ilike(posts.title, term))).limit(5),
+    db.select({ id: posts.id, slug: posts.slug, title: posts.title, spaceSlug: spaces.slug }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(activePost, postSpaceAccess(viewer), ilike(posts.title, term))).limit(5),
   ]);
   return [
     ...sp.map((s): SearchResult => ({ type: "space", id: s.id, title: `b/${s.slug}`, subtitle: s.name, href: routes.space(s.slug) })),

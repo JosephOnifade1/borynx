@@ -4,6 +4,7 @@ import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { db } from "@/db";
 import { comments, memberships, posts, reports, users } from "@/db/schema";
 import { ModeratorManager, ReportDecision } from "@/components/mod/ModActions";
+import { ReportedPostEvidence } from "@/components/mod/ReportedPostEvidence";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { canModerateSpace, getCurrentUser } from "@/lib/auth";
 import { REPORT_REASON_LABEL } from "@/lib/constants";
@@ -90,6 +91,7 @@ export default async function SpaceModPage({ params }: { params: Promise<{ slug:
                 )}
               </p>
               {r.details && <p className="mt-1 text-[12.5px] text-ink-2">{r.details}</p>}
+              {r.targetType === "post" && <ReportedPostEvidence snapshot={r.postSnapshot} />}
               <div className="mt-2.5">
                 <ReportDecision reportId={r.id} />
               </div>
