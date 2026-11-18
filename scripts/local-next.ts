@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { DemoAccountMode } from "../src/lib/demo-mode";
 
-export function startLocalNext(databaseUrl: string, demo: DemoAccountMode, args: string[], inheritLogs = false) {
+export function startLocalNext(databaseUrl: string, demo: DemoAccountMode, args: string[], inheritLogs = false, overrides: Readonly<Record<string, string>> = {}) {
   const env = { ...process.env };
   // Do not inherit alternate connection settings (including SSL/options) from a user shell.
   for (const key of Object.keys(env)) if (key.startsWith("PG")) delete env[key];
@@ -13,6 +13,9 @@ export function startLocalNext(databaseUrl: string, demo: DemoAccountMode, args:
       DATABASE_URL: databaseUrl,
       BORYNX_DEMO_MODE: demo === "disabled" ? "0" : "1",
       BORYNX_DEMO_EXISTING_ACCOUNTS: demo === "existing" ? "1" : "0",
+      BORYNX_EMAIL_AUTH: "0",
+      BORYNX_EMAIL_SENDS: "0",
+      ...overrides,
       NODE_ENV: "development",
       NEXT_TELEMETRY_DISABLED: "1",
     },

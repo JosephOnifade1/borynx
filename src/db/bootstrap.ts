@@ -3,6 +3,7 @@ import path from "node:path";
 import { pool } from "./index";
 import { LEDGER, migrateDatabase, migrationsFolder } from "./migrations";
 import { seedDatabase, type SeedResult } from "./seed";
+import { emailAuthConfig } from "@/lib/email-auth/policy";
 
 /** Connect → verify/apply the Drizzle journal → seed the catalogue and optional demo fixtures. */
 const FIRST_CONNECT_BUDGET_MS = 15_000;
@@ -64,6 +65,7 @@ async function bootstrap(connectBudgetMs: number): Promise<DbStatus> {
     const { applied, available } = await migrateDatabase(pool);
     status.migrationsApplied = applied;
     status.migrationsAvailable = available;
+    if (emailAuthConfig()) await assertAppOnlyGrants();
 
     status.stage = "seed";
     try {
@@ -131,6 +133,28 @@ export const TRACKED_TABLES = [
   "karma_events",
   "referrals",
 ] as const;
+
+async function assertAppOnlyGrants() {
+  const { rows: [row] } = await pool.query<{ exposed: boolean }>(`
+    select exists (
+      select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where c.relkind in ('r', 'p')
+        and ((n.nspname = 'public' and c.relname = any($1::text[])) or n.nspname = 'borynx_private')
+        and (
+          exists (select 1 from aclexplode(c.relacl) p where p.grantee = 0)
+          or exists (
+            select 1 from pg_attribute a cross join lateral aclexplode(a.attacl) p
+            where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped and p.grantee = 0
+          )
+          or exists (
+            select 1 from pg_roles r where r.rolname in ('anon','authenticated')
+              and (has_table_privilege(r.oid, c.oid, 'select,insert,update,delete,truncate,references,trigger')
+                   or has_any_column_privilege(r.oid, c.oid, 'select,insert,update,references'))
+          )
+        )
+    ) as exposed`, [[...TRACKED_TABLES, "lead_bid_archive", "follows", "notifications"]]);
+  if (row.exposed) throw new Error("Email staging requires app-only database access. Remove PUBLIC and browser-role grants on Borynx tables, and keep the Data API off.");
+}
 
 export interface LedgerEntry {
   id: number;

@@ -15,7 +15,7 @@ export function isDemoDatabaseUrl(value: string | undefined): boolean {
 }
 
 function demoRequested(env: Environment): boolean {
-  return env.BORYNX_DEMO_MODE === "1" && (env.NODE_ENV === "development" || env.NODE_ENV === "test");
+  return env.BORYNX_DEMO_MODE === "1" && env.BORYNX_EMAIL_AUTH !== "staging" && (env.NODE_ENV === "development" || env.NODE_ENV === "test");
 }
 
 /** One server-side switch for demo seeding, sign-in, and preview transports. */

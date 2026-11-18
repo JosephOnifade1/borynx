@@ -52,7 +52,7 @@ function fieldError(field: string, message: string): never {
 function trimmed(value: unknown, field: string, label: string, min: number, max: number): string {
   const text = typeof value === "string" ? value.trim() : "";
   if (text.length < min || text.length > max) fieldError(field, `${label} must be ${min}–${max.toLocaleString("en-US")} characters.`);
-  if (text.includes("\0")) fieldError(field, `${label} contains an unsupported character.`);
+  if (text.includes("\0") || /[\uD800-\uDFFF]/u.test(text)) fieldError(field, `${label} contains an unsupported character.`);
   return text;
 }
 
@@ -122,7 +122,7 @@ export function parseLeadFields(value: unknown, { now = Date.now(), enforceFloor
 
   if (body.location != null && (typeof body.location !== "string" || body.location.trim().length > 80)) fieldError("location", "Location must be at most 80 characters.");
   const location = typeof body.location === "string" ? body.location.trim() || "Remote" : "Remote";
-  if (location.includes("\0")) fieldError("location", "Location contains an unsupported character.");
+  if (location.includes("\0") || /[\uD800-\uDFFF]/u.test(location)) fieldError("location", "Location contains an unsupported character.");
   let spaceSlug: string | null = null;
   if (body.spaceSlug != null && body.spaceSlug !== "") spaceSlug = trimmed(body.spaceSlug, "spaceSlug", "Space", 1, 48).toLowerCase();
   return { title, description, category, kind, budgetMin, budgetMax, currency, budgetUnit, skillTags: [...skills], deadlineAt, location, spaceSlug };

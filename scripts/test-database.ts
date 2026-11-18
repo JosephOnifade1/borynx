@@ -10,6 +10,7 @@ import { LEDGER, migrateDatabase, migrationsFolder } from "../src/db/migrations"
 import type { DemoAccountMode } from "../src/lib/demo-mode";
 import { DEMO_PERSONAS } from "../src/lib/demo-personas";
 import { startLocalNext } from "./local-next";
+import { checkEmailStaging } from "./test-email-auth";
 import { freeLoopbackPort, LOOPBACK, withLocalPostgres } from "./local-postgres";
 
 async function usingDatabase<T>(url: string, run: (pool: Pool) => Promise<T>) {
@@ -407,6 +408,14 @@ async function checkDisabledApp(url: string, oldDemoToken: string) {
       assert.deepEqual(await fetch(`${origin}/api/me`, { headers }).then((r) => r.json()), { user: null, transport: "none" });
       assert.equal((await jsonPost(`${origin}/api/leads`, {}, headers)).status, 401);
     }
+    for (const endpoint of ["/api/auth/email", "/api/leads/intake", "/api/leads/intake/confirm"]) {
+      const disabled = await jsonPost(`${origin}${endpoint}`, { email: "no-delivery@example.test" });
+      assert.equal(disabled.status, 404);
+      assert.equal(disabled.headers.get("set-cookie"), null);
+    }
+    const callback = await fetch(`${origin}/api/auth/callback?code=fixture`, { redirect: "manual" });
+    assert.equal(callback.status, 404);
+    assert.equal(callback.headers.get("set-cookie"), null);
     const status = await fetch(`${origin}/status`).then((r) => r.text());
     assert.match(status, /Service status/);
     assert.doesNotMatch(status, /Drizzle migration ledger|Database & runtime/);
@@ -414,8 +423,17 @@ async function checkDisabledApp(url: string, oldDemoToken: string) {
   console.log("PASS demo-off boot seeds no users, posts or leads; hides picker/diagnostics and rejects sign-in and all old demo transports");
 }
 
+async function checkPhaseTwoEmailUpgrade(url: string, directory: string) {
+  const phaseTwo = await copyJournalPrefix(directory, "phase2-migrations", 8);
+  await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, phaseTwo.folder), { applied: 8, available: 8 });
+  });
+  await checkEmailStaging(url, directory);
+}
+
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
+  if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   await checkMigrationUpgrade(await createDatabase("borynx_demo_upgrade"), directory);
   await checkPhaseZeroUpgrade(await createDatabase("borynx_demo_phase0_upgrade"), directory);
   await checkLegacyBids(await createDatabase("borynx_demo_phase1_upgrade"), directory);
@@ -431,4 +449,5 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
   await withApp(engagementUrl, "personas", (origin) => runAppTests(["src/lib/__tests__/lead-engagement.integration.test.ts"], {
     BORYNX_ENGAGEMENT_TEST_ORIGIN: origin, BORYNX_ENGAGEMENT_TEST_DATABASE_URL: engagementUrl,
   }));
+  await checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

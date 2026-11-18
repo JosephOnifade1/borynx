@@ -57,6 +57,13 @@
       "when": 1795005835736,
       "tag": "0007_reconcile_legacy_bids",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795014369226,
+      "tag": "0008_verified_email_intake",
+      "breakpoints": true
     }
   ]
 }

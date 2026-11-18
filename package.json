@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:db": "tsx scripts/test-database.ts",
     "dev:demo": "tsx scripts/dev-demo.ts",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:prune-email": "tsx scripts/prune-email-intakes.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.107.1",

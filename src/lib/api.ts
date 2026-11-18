@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { ensureDatabase } from "@/db/bootstrap";
 import { errorResponse, HttpError } from "./auth";
+import { assertMutationOrigin } from "./email-auth/policy";
 
 type Params = Record<string, string>;
 type Handler = (req: NextRequest, ctx: { params: Params }) => Promise<Response>;
@@ -12,11 +13,12 @@ type Handler = (req: NextRequest, ctx: { params: Params }) => Promise<Response>;
 export function handler(fn: Handler) {
   return async (req: NextRequest, ctx: { params: Promise<Params> }): Promise<Response> => {
     try {
+      assertMutationOrigin(req);
       const status = await ensureDatabase();
       if (!status.ok) {
         return Response.json(
           { error: "Database unavailable", code: "db_unavailable" },
-          { status: 503, headers: { "Retry-After": "5" } },
+          { status: 503, headers: { "Retry-After": "5", "Cache-Control": "private, no-store" } },
         );
       }
       const params = await ctx.params;

@@ -1,5 +1,14 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
+
+const subscribeToHydration = () => () => undefined;
+
+/** Guard client-only forms against native pre-hydration submission. */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(subscribeToHydration, () => true, () => false);
+}
+
 /**
  * Guarded browser storage. Inside cross-site iframes (embedded previews) browsers may throw a
  * SecurityError on *any* access to localStorage/sessionStorage. Every read/write here is wrapped

@@ -1,6 +1,6 @@
 # Local database and demo sign-in
 
-Phase 0 established the setup and safety checks; this runbook covers the current journal through Phase 2. The checks below use fictional rows in disposable PostgreSQL only.
+Phase 0 established the setup and safety checks; this runbook covers the current journal through Phase 3. The checks below use fictional rows in disposable PostgreSQL only.
 
 ## Quick setup
 
@@ -18,7 +18,7 @@ Phase 0 established the setup and safety checks; this runbook covers the current
 ### Sign-in boundary
 
 - Demo fixtures and handle-only sign-in require an explicit development/test opt-in and a dedicated local database. `npm run dev:demo` ignores the existing-accounts setting and exposes only the five fictional persona sign-ins on disposable PostgreSQL. The extra existing-accounts mode is for direct loopback requests only. The picker, new sessions, and cookie/header/bearer validation enforce the same rule. Neither mode can create accounts through `/login`.
-- With the flag off, or under `next start` (production), new demo sign-in returns `404`. Existing demo cookies, `x-bx-session`, and bearer tokens do not authenticate. The app won't display the persona picker or install the fetch shim. No automatic purge of existing rows or sessions is performed. Real sign-in is a later phase; do not restore legacy session acceptance when adding it.
+- With the flag off, or under `next start` (production), new demo sign-in returns `404`. Existing demo cookies, `x-bx-session`, and bearer tokens do not authenticate. The app won't display the persona picker or install the fetch shim. No automatic purge of existing rows or sessions is performed. Verified email sign-in is independently gated; see the [Phase 3 staging runbook](./MARKETPLACE_PHASE_3.md). It never accepts legacy credentials.
 - The badge catalogue is application data and still loads in non-demo mode. No demo users, posts, or leads are inserted then. `/api/health` returns `{ "ok": true }` or a `503` with `{ "ok": false }`; it does not publish database diagnostics. Detailed `/status` information is for the isolated demo only.
 
 ## Migration ledger
@@ -37,6 +37,6 @@ A fresh database can have an empty ledger. A database with untracked tables/enum
 | `npm test` | Unit suite, including demo-mode and database-URL policy. |
 | `npm run typecheck`, `npm run lint`, `npm run build` | TypeScript, lint, and production compile. The pre-existing lint fixes are isolated in their own commit. |
 | `npx drizzle-kit check` | Checks migration snapshots and journal consistency without applying SQL. |
-| `npm run test:db` | Applies the journal to a fresh database and upgrades from `0002`, `0004`, and `0005`. Verifies legacy award reconciliation, uniqueness, safe resume after a failed file, concurrent and repeat migration runs, and refusal of untracked or mismatched ledgers. Checks existing local account sign-in and restrictions as well as the five-persona and disabled modes; runs the thread-author, lead-publication, and lead-engagement HTTP suites. |
+| `npm run test:db` | Applies the journal to a fresh database and upgrades from `0002`, `0004`, `0005`, and `0007`. Verifies legacy award reconciliation, uniqueness, safe resume after a failed file, concurrent and repeat migration runs, and refusal of untracked or mismatched ledgers. Checks existing local account sign-in and restrictions as well as the five-persona and disabled modes; runs the thread-author, lead-publication, and lead-engagement HTTP suites, plus a staged email rehearsal with a local HTTPS provider double. |
 
-`test:db` does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the HTTP integration cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.
+`test:db` requires `openssl` for the throwaway TLS fixture and does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the HTTP integration cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.

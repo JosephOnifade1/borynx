@@ -1,17 +1,67 @@
 import { and, desc, eq, isNotNull, ne, or } from "drizzle-orm";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { db } from "@/db";
 import { leads, spaces } from "@/db/schema";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { ConfirmLeadIntake } from "@/components/leads/ConfirmLeadIntake";
 import { LeadComposer } from "@/components/leads/LeadComposer";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
 import { PageFrame, PageHeader } from "@/components/PageFrame";
-import { getCurrentUser, getDemoAccountMode, isSuspended, restrictionMessage } from "@/lib/auth";
-import { routes } from "@/lib/utils";
+import { getSession, getDemoAccountMode, isSuspended, restrictionMessage } from "@/lib/auth";
+import { LEAD_KIND_LABEL } from "@/lib/constants";
+import { loadIntakeConfirmation } from "@/lib/email-auth/intakes";
+import { emailAuthConfig, isAuthHost } from "@/lib/email-auth/policy";
+import { LEAD_SKILLS } from "@/lib/lead-input";
+import { formatBudget, routes } from "@/lib/utils";
 
 export const metadata = { title: "Draft a lead", robots: { index: false } };
 
-export default async function NewLeadPage() {
-  const [user, demoAccountMode] = await Promise.all([getCurrentUser(), getDemoAccountMode()]);
+type Confirmation = Awaited<ReturnType<typeof loadIntakeConfirmation>>;
+
+function ReviewSavedLead({ confirmation }: { confirmation: Confirmation }) {
+  const header = <PageHeader eyebrow="Marketplace · private draft" title="Review saved brief" description="Signing in did not submit the lead. Check the details before sending it to reviewers." />;
+  if (confirmation?.kind !== "pending") {
+    return (
+      <PageFrame header={header}>
+        <div className="space-y-3 px-4 py-5 sm:px-7 sm:py-6">
+          <p role="status" className="text-[14px] text-ink-2">{confirmation?.kind === "submitted" ? "You already submitted this brief." : confirmation?.kind === "expired" ? "This draft is no longer available. Unsubmitted drafts expire after 24 hours." : "This draft is not available for your current sign-in. Open the latest link in the browser where you requested it, or start a new brief."}</p>
+          <Link href={confirmation?.kind === "submitted" ? confirmation.href : routes.leadNew()} className="btn btn-primary">{confirmation?.kind === "submitted" ? "View your submission" : "Back to draft a lead"}</Link>
+        </div>
+      </PageFrame>
+    );
+  }
+  const { brief, id, expiresAt, submissionKey } = confirmation;
+  return (
+    <PageFrame header={header}>
+      <ConfirmLeadIntake id={id} submissionKey={submissionKey}>
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
+          <span className="tag tag-gold">Email confirmed</span>
+          <span>Draft expires <time dateTime={expiresAt.toISOString()}>{expiresAt.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC</time></span>
+        </div>
+        <section className="rounded-md border border-line bg-sunken/30 p-3 sm:p-4" aria-label="Saved brief details">
+          <p className="eyebrow">{LEAD_KIND_LABEL[brief.kind]} · {brief.category}</p>
+          <h2 className="display mt-1 break-words text-[21px]">{brief.title}</h2>
+          <p className="num mt-1 text-[13px] text-ink-2">{formatBudget(brief.budgetMin, brief.budgetMax, brief.currency, brief.budgetUnit)}{brief.budgetUnit === "fixed" ? " fixed" : ""} · {brief.location}</p>
+          <MarkdownRenderer source={brief.description} className="mt-3 break-words" />
+          <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Skills">{brief.skillTags.map((skill) => <li key={skill} className="tag">{LEAD_SKILLS[skill] ?? skill}</li>)}</ul>
+          {(brief.spaceSlug || brief.deadlineAt) && <p className="mt-2 text-[12px] text-ink-3">{brief.spaceSlug && `Space: ${brief.spaceSlug}. `}{brief.deadlineAt && <>Bids due <time dateTime={brief.deadlineAt}>{new Date(brief.deadlineAt).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</time>.</>}</p>}
+        </section>
+        <p className="text-[13px] text-ink-2">The brief stays off the public board unless a site reviewer approves it.</p>
+      </ConfirmLeadIntake>
+    </PageFrame>
+  );
+}
+
+export default async function NewLeadPage({ searchParams }: { searchParams: Promise<{ intake?: string }> }) {
+  const [session, demoAccountMode, requestHeaders, { intake }] = await Promise.all([getSession(), getDemoAccountMode(), headers(), searchParams]);
+  const user = session?.user ?? null;
+  const config = emailAuthConfig();
+  if (intake !== undefined) {
+    const confirmation = config && isAuthHost(config, requestHeaders) ? await loadIntakeConfirmation(config, session, intake) : null;
+    return <ReviewSavedLead confirmation={confirmation} />;
+  }
+  const emailIntake = Boolean(config?.canSend && isAuthHost(config, requestHeaders));
   const [availableSpaces, submissions] = await Promise.all([
     db.select({ slug: spaces.slug, name: spaces.name }).from(spaces).where(eq(spaces.privacy, "public")).orderBy(spaces.name),
     user ? db.select({ id: leads.id, title: leads.title, state: leads.publicationStatus, status: leads.status, submissionKey: leads.submissionKey }).from(leads)
@@ -36,7 +86,7 @@ export default async function NewLeadPage() {
           <p className="eyebrow text-danger">Posting restricted</p>
           <p className="mt-2 text-[14px] text-ink-2">{restrictionMessage(user)}</p>
         </div>
-      ) : <LeadComposer spaces={availableSpaces} demoMode={demoAccountMode !== "disabled"} />}
+      ) : <LeadComposer spaces={availableSpaces} demoMode={demoAccountMode !== "disabled"} emailIntake={emailIntake} />}
     </PageFrame>
   );
 }

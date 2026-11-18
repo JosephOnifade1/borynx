@@ -5,26 +5,27 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId, useState, useSyncExternalStore } from "react";
 import type { Lead } from "@/db/schema";
+import { EmailLinkForm } from "@/components/auth/EmailLinkForm";
 import { useSession } from "@/components/providers";
-import { safeStorage } from "@/lib/browser";
+import { safeStorage, useHydrated } from "@/lib/browser";
 import { api, ClientError, queryKeys } from "@/lib/client";
 import { LEAD_CATEGORIES, LEAD_KIND_LABEL } from "@/lib/constants";
 import { HttpError } from "@/lib/errors";
 import { CONTRACT_FLOORS, LEAD_BUDGET_UNITS, LEAD_CURRENCIES, LEAD_KINDS, LEAD_SKILLS, MAX_LEAD_BUDGET, MAX_LEAD_SKILLS, parseLeadFields, parseSubmissionKey, type LeadFields, type LeadInput } from "@/lib/lead-input";
+import { LEAD_DRAFT_KEY } from "@/lib/lead-draft";
 import { routes } from "@/lib/utils";
 
 type DraftFields = Omit<LeadFields, "kind" | "category" | "currency" | "budgetUnit" | "budgetMin" | "budgetMax" | "deadlineAt" | "spaceSlug"> & {
   kind: string; category: string; currency: string; budgetUnit: string; budgetMin: string; budgetMax: string; deadlineAt: string; spaceSlug: string;
 };
-type Draft = { fields: DraftFields; key: string };
+type Draft = { fields: DraftFields; key: string; intakeStarted?: boolean };
 export type LeadRevision = { id: number; revision: number; enforceFloor: boolean; fields: DraftFields };
-const DRAFT_KEY = "bx-lead-draft-v1";
 const EMPTY: DraftFields = {
   title: "", description: "", category: LEAD_CATEGORIES[0], kind: "contract", budgetMin: "", budgetMax: "", currency: "USD",
   budgetUnit: "fixed", skillTags: [], deadlineAt: "", location: "Remote", spaceSlug: "",
 };
 const subscribe = () => () => undefined;
-const readDraft = () => safeStorage.get(DRAFT_KEY, "session");
+const readDraft = () => safeStorage.get(LEAD_DRAFT_KEY, "session");
 const serverDraft = () => null;
 
 function decodeDraft(raw: string | null): Draft | null {
@@ -39,41 +40,45 @@ function decodeDraft(raw: string | null): Draft | null {
         if (Array.isArray(value)) fields.skillTags = value.filter((s) => typeof s === "string" && Object.hasOwn(LEAD_SKILLS, s)).slice(0, MAX_LEAD_SKILLS);
       } else if (typeof value === "string") fields[key] = value;
     }
-    return { fields, key: parseSubmissionKey(stored.key) };
+    return { fields, key: parseSubmissionKey(stored.key), intakeStarted: stored.intakeStarted === true };
   } catch {
     return null;
   }
 }
 
-export function LeadComposer({ spaces, demoMode = false, correction }: {
+export function LeadComposer({ spaces, demoMode = false, emailIntake = false, correction }: {
   spaces: Array<{ slug: string; name: string }>;
   demoMode?: boolean;
+  emailIntake?: boolean;
   correction?: LeadRevision;
 }) {
   const router = useRouter();
   const query = useQueryClient();
   const user = useSession();
+  const hydrated = useHydrated();
   const prefix = useId();
   const persisted = useSyncExternalStore(subscribe, readDraft, serverDraft);
   const restored = correction ? null : decodeDraft(persisted);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [issue, setIssue] = useState<{ message: string; fields?: Record<string, string> } | null>(null);
   const [saved, setSaved] = useState(false);
+  const [emailLead, setEmailLead] = useState<LeadInput | null>(null);
   const fields = draft?.fields ?? correction?.fields ?? restored?.fields ?? EMPTY;
   const key = draft?.key ?? restored?.key;
+  const intakeStarted = (draft ?? restored)?.intakeStarted === true;
   const applyFloor = correction?.enforceFloor ?? true;
   const floor = applyFloor && fields.kind === "contract" && Object.hasOwn(CONTRACT_FLOORS, fields.currency) && LEAD_BUDGET_UNITS.some((unit) => unit === fields.budgetUnit)
     ? CONTRACT_FLOORS[fields.currency as keyof typeof CONTRACT_FLOORS][fields.budgetUnit as (typeof LEAD_BUDGET_UNITS)[number]] : 0;
 
-  const saveDraft = (values: DraftFields, newKey = key ?? crypto.randomUUID()) => {
-    const next = { fields: values, key: newKey };
+  const saveDraft = (values: DraftFields, newKey = key ?? crypto.randomUUID(), started = intakeStarted && newKey === key) => {
+    const next = { fields: values, key: newKey, intakeStarted: started };
     setDraft(next);
-    if (!correction) safeStorage.set(DRAFT_KEY, JSON.stringify(next), "session");
+    if (!correction) safeStorage.set(LEAD_DRAFT_KEY, JSON.stringify(next), "session");
     return newKey;
   };
   const set = <K extends keyof DraftFields>(name: K, value: DraftFields[K]) => {
     setIssue(null);
-    saveDraft({ ...fields, [name]: value });
+    saveDraft({ ...fields, [name]: value }, intakeStarted ? crypto.randomUUID() : key);
   };
 
   const submit = useMutation({
@@ -84,7 +89,7 @@ export function LeadComposer({ spaces, demoMode = false, correction }: {
     onSuccess: (result) => {
       setSaved(true);
       if (!correction) {
-        safeStorage.remove(DRAFT_KEY, "session");
+        safeStorage.remove(LEAD_DRAFT_KEY, "session");
         router.push(result.href);
       }
       void query.invalidateQueries({ queryKey: queryKeys.notifications() });
@@ -102,10 +107,19 @@ export function LeadComposer({ spaces, demoMode = false, correction }: {
   const fieldNote = (name: keyof DraftFields) => err(name) && <span id={`${prefix}-${name}-error`} className="mt-1 block text-[12px] text-danger">{err(name)}</span>;
   const waiting = submit.isPending || saved;
 
+  if (emailLead && !user && emailIntake && !correction) return <EmailLinkForm
+    mode="intake" lead={emailLead}
+    onAttempt={() => saveDraft(fields, emailLead.submissionKey, true)}
+    onBack={() => {
+      if (intakeStarted) saveDraft(fields, crypto.randomUUID(), false);
+      setEmailLead(null);
+    }}
+  />;
+
   return (
-    <form className="px-4 py-5 sm:px-7 sm:py-6" aria-label={correction ? "Revise lead" : "Lead brief"} noValidate onSubmit={(event) => {
+    <form method="post" className="px-4 py-5 sm:px-7 sm:py-6" aria-label={correction ? "Revise lead" : "Lead brief"} noValidate onSubmit={(event) => {
       event.preventDefault();
-      if (waiting) return;
+      if (!hydrated || waiting) return;
       setIssue(null);
       try {
         const values = parseLeadFields({
@@ -115,9 +129,12 @@ export function LeadComposer({ spaces, demoMode = false, correction }: {
           deadlineAt: fields.deadlineAt ? `${fields.deadlineAt}Z` : null,
         }, { enforceFloor: applyFloor });
         if (!user) {
-          if (!demoMode) return;
-          saveDraft(fields);
-          router.push(`${routes.login()}?next=${encodeURIComponent(routes.leadNew())}`);
+          if (emailIntake) {
+            setEmailLead({ ...values, submissionKey: saveDraft(fields) });
+          } else if (demoMode) {
+            saveDraft(fields);
+            router.push(`${routes.login()}?next=${encodeURIComponent(routes.leadNew())}`);
+          }
         } else if (correction) {
           submit.mutate({ ...values, revision: correction.revision });
         } else {
@@ -127,7 +144,7 @@ export function LeadComposer({ spaces, demoMode = false, correction }: {
         setIssue({ message: error instanceof Error ? error.message : "Check the brief and try again.", fields: error instanceof HttpError ? error.fields : undefined });
       }
     }}>
-      <fieldset disabled={waiting} className="min-w-0 space-y-5">
+      <fieldset disabled={!hydrated || waiting} className="min-w-0 space-y-5">
         <legend className="sr-only">Lead details</legend>
         {issue && <p role="alert" className="rounded-md border border-danger/40 bg-danger-soft/30 px-3 py-2 text-[13px] text-danger">{issue.message}</p>}
         <div className="grid gap-3 sm:grid-cols-3">
@@ -196,12 +213,12 @@ export function LeadComposer({ spaces, demoMode = false, correction }: {
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
           <p className="max-w-md text-[12.5px] text-ink-3">
-            {!user ? "Your draft stays in this browser tab. Signing in won’t submit it." : "Only you and site reviewers can see the brief until it is approved."}
+            {!user ? (emailIntake ? "Your draft stays in this browser tab until you continue by email. Signing in won’t submit it." : "Your draft stays in this browser tab. Signing in won’t submit it.") : "Only you and site reviewers can see the brief until it is approved."}
           </p>
           <div className="flex flex-wrap gap-2">
             {!correction && <Link href={routes.leads()} className="btn">Back to leads</Link>}
-            <button type="submit" className="btn btn-primary" disabled={waiting || (!user && !demoMode)}>
-              {waiting ? "Saving…" : correction ? "Resubmit for review" : user ? "Submit for review" : demoMode ? "Continue to sign in" : "Sign-in unavailable"}
+            <button type="submit" className="btn btn-primary" disabled={waiting || (!user && !demoMode && !emailIntake)}>
+              {waiting ? "Saving…" : correction ? "Resubmit for review" : user ? "Submit for review" : emailIntake ? "Continue to email" : demoMode ? "Continue to sign in" : "Sign-in unavailable"}
             </button>
           </div>
         </div>
