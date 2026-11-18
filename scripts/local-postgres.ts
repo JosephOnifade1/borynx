@@ -24,6 +24,7 @@ export function freeLoopbackPort(): Promise<number> {
 /** This helper never reads DATABASE_URL or connects to an existing cluster. */
 export async function withLocalPostgres<T>(run: (pg: { directory: string; createDatabase: (name: string) => Promise<string> }) => Promise<T>): Promise<T> {
   if (process.getuid?.() === 0) throw new Error("Run the disposable PostgreSQL scripts as a normal user, not root.");
+  // @ts-ignore
   const { default: EmbeddedPostgres } = await import("embedded-postgres");
   const port = await freeLoopbackPort();
   const directory = await mkdtemp(join(tmpdir(), "borynx-pg-"));
@@ -37,7 +38,7 @@ export async function withLocalPostgres<T>(run: (pg: { directory: string; create
     persistent: false,
     initdbFlags: ["--locale=C", "--encoding=UTF8"],
     postgresFlags: ["-h", LOOPBACK, "-c", "unix_socket_directories="],
-    onLog: (message) => { if (/FATAL|PANIC/i.test(message)) process.stderr.write(message); },
+    onLog: (message: string) => { if (/FATAL|PANIC/i.test(message)) process.stderr.write(message); },
   });
   let started = false;
   try {
