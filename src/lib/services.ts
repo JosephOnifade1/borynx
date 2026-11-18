@@ -28,6 +28,7 @@ import {
 } from "./karma";
 import { evaluateContent, RATE_LIMITS, type RateLimitedAction } from "./safety";
 import { createNotification } from "./notifications";
+import { lockLead, publicLead } from "./lead-access";
 import { activePost, lockOpenPost } from "./post-access";
 import { routes } from "./utils";
 
@@ -57,28 +58,28 @@ export async function applyKarma(exec: Executor, userId: number, computation: Ka
 /* Rate limiting                                                       */
 /* ------------------------------------------------------------------ */
 
-export async function assertRateLimit(userId: number, action: RateLimitedAction): Promise<void> {
+export async function assertRateLimit(userId: number, action: RateLimitedAction, exec: Executor = db): Promise<void> {
   const limit = RATE_LIMITS[action];
   const since = new Date(Date.now() - limit.windowMinutes * 60_000);
   let recent = 0;
   switch (action) {
     case "post": {
-      const [r] = await db.select({ c: count() }).from(posts).where(and(eq(posts.authorId, userId), gte(posts.createdAt, since)));
+      const [r] = await exec.select({ c: count() }).from(posts).where(and(eq(posts.authorId, userId), gte(posts.createdAt, since)));
       recent = r.c;
       break;
     }
     case "comment": {
-      const [r] = await db.select({ c: count() }).from(comments).where(and(eq(comments.authorId, userId), gte(comments.createdAt, since)));
+      const [r] = await exec.select({ c: count() }).from(comments).where(and(eq(comments.authorId, userId), gte(comments.createdAt, since)));
       recent = r.c;
       break;
     }
     case "lead": {
-      const [r] = await db.select({ c: count() }).from(leads).where(and(eq(leads.authorId, userId), gte(leads.createdAt, since)));
+      const [r] = await exec.select({ c: count() }).from(leads).where(and(eq(leads.authorId, userId), gte(leads.createdAt, since)));
       recent = r.c;
       break;
     }
     case "report": {
-      const [r] = await db.select({ c: count() }).from(reports).where(and(eq(reports.reporterId, userId), gte(reports.createdAt, since)));
+      const [r] = await exec.select({ c: count() }).from(reports).where(and(eq(reports.reporterId, userId), gte(reports.createdAt, since)));
       recent = r.c;
       break;
     }
@@ -87,7 +88,7 @@ export async function assertRateLimit(userId: number, action: RateLimitedAction)
       break;
   }
   if (recent >= limit.max) {
-    throw new HttpError(429, `Slow down — max ${limit.max} ${action}s per ${limit.windowMinutes} minutes.`, "rate_limited");
+    throw new HttpError(429, `Slow down — max ${limit.max} ${action}s per ${limit.windowMinutes} minutes.`, "rate_limited", undefined, limit.windowMinutes * 60);
   }
 }
 
@@ -136,6 +137,7 @@ export interface VoteResult {
 
 export async function castVote(user: User, targetType: VoteTarget, targetId: number, value: 1 | -1 | 0): Promise<VoteResult> {
   return db.transaction(async (tx) => {
+    if (targetType === "lead") await lockLead(tx, targetId, publicLead);
     if (targetType === "post") await lockOpenPost(tx, targetId, user);
     if (targetType === "comment") {
       const [comment] = await tx.select({ postId: comments.postId }).from(comments)
@@ -283,7 +285,7 @@ export async function loadBadgeStats(userId: number, exec: Executor = db): Promi
     .where(and(eq(posts.authorId, userId), activePost, sql`${posts.upvotes} - ${posts.downvotes} >= 5`));
   const [s] = await exec.select({ c: count() }).from(comments).where(and(eq(comments.authorId, userId), eq(comments.isSolution, true)));
   const [c] = await exec.select({ c: count() }).from(comments).where(and(eq(comments.authorId, userId), eq(comments.isRemoved, false)));
-  const [l] = await exec.select({ c: count() }).from(leads).where(and(eq(leads.authorId, userId), eq(leads.isRemoved, false)));
+  const [l] = await exec.select({ c: count() }).from(leads).where(and(eq(leads.authorId, userId), publicLead));
   const [m] = await exec.select({ c: count() }).from(memberships).where(eq(memberships.userId, userId));
   return {
     verified: user?.isVerified ? 1 : 0,

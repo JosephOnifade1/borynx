@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
 import type { PublicUser } from "@/lib/auth";
-import { clearStoredToken, getStoredToken, safeStorage } from "@/lib/browser";
+import { clearStoredToken, getStoredToken, installDemoSessionTransport, safeStorage } from "@/lib/browser";
 import { api } from "@/lib/client";
 import { useUiStore } from "@/store/ui";
 
@@ -21,11 +21,12 @@ let reconciledThisDocument = false;
 /**
  * Header-fallback reconciliation. A full document load never carries the x-bx-session header, so
  * when cookies are blocked the server renders signed-out. If this tab holds a token, validate it
- * and re-fetch the RSC tree (the inline fetch shim attaches the header to that request).
+ * and re-fetch the RSC tree (the demo fetch shim attaches the header to that request).
  */
 function SessionReconciler({ user }: { user: PublicUser | null }): null {
   const router = useRouter();
   useEffect(() => {
+    installDemoSessionTransport();
     if (user) return;
     const token = getStoredToken();
     if (!token || reconciledThisDocument) return;

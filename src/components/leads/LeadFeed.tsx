@@ -12,6 +12,7 @@ import { UserHoverCard } from "@/components/UserHoverCard";
 import { useWindowScrollMargin } from "@/components/useWindowScrollMargin";
 import { api, queryKeys } from "@/lib/client";
 import { LEAD_CATEGORIES, LEAD_KIND_LABEL } from "@/lib/constants";
+import { LEAD_SKILLS } from "@/lib/lead-input";
 import { RANK_MODES, type RankMode } from "@/lib/sorting";
 import type { FeedLead, FeedPage } from "@/lib/types";
 import { cn, formatBudget, routes, timeAgo } from "@/lib/utils";
@@ -40,7 +41,7 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
               <Lock size={10} /> escrow
             </span>
           )}
-          {lead.status !== "open" && <span className="tag tag-danger">{lead.status.replace("_", " ")}</span>}
+          {!lead.acceptingBids && <span className="tag tag-danger">{lead.status === "open" ? "Deadline passed" : lead.status.replace("_", " ")}</span>}
           {lead.space && (
             <Link href={routes.space(lead.space.slug)} className="num hover:underline">
               b/{lead.space.slug}
@@ -68,7 +69,7 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
         <MarkdownRenderer inline source={lead.excerpt} className="mt-1 line-clamp-2 block text-[13.5px] leading-relaxed text-ink-2" />
 
         <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
-          <span className="num tag tag-verdigris text-[12px] normal-case tracking-normal">{formatBudget(lead.budgetMin, lead.budgetMax, lead.currency)}</span>
+          <span className="num tag tag-verdigris text-[12px] normal-case tracking-normal">{formatBudget(lead.budgetMin, lead.budgetMax, lead.currency, lead.budgetUnit)}</span>
           <span className="inline-flex items-center gap-1">
             <MapPin size={11} /> {lead.location}
           </span>
@@ -77,14 +78,14 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
           </span>
         </div>
 
+        {lead.skillTags.length > 0 && <ul aria-label="Skills" className="mt-2 flex flex-wrap gap-1">{lead.skillTags.map((skill) => <li key={skill} className="tag">{LEAD_SKILLS[skill] ?? skill}</li>)}</ul>}
+
         <footer className="-ml-1.5 mt-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-0.5">
             <ShareButton path={lead.href} />
             <ReportButton target={{ type: "lead", id: lead.id, label: lead.title, spaceId: lead.space?.id ?? null }} />
           </div>
-          <Link href={`${lead.href}#bid`} className="btn btn-primary btn-sm">
-            Quick apply
-          </Link>
+          {lead.acceptingBids && <Link href={`${lead.href}#bid`} className="btn btn-primary btn-sm">Quick apply</Link>}
         </footer>
       </div>
     </article>
@@ -111,7 +112,7 @@ export function LeadFeed({ initialPage, author }: { initialPage?: FeedPage<FeedL
       if (category) qs.set("category", category);
       if (kind) qs.set("kind", kind);
       if (verifiedOnly) qs.set("verified", "1");
-      if (author) qs.set("author", author);
+      if (author) { qs.set("author", author); qs.set("active", "1"); }
       return api<FeedPage<FeedLead>>(`/api/leads?${qs.toString()}`);
     },
     initialPageParam: 0,

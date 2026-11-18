@@ -8,6 +8,7 @@ export class ClientError extends Error {
     public status: number,
     message: string,
     public code: string,
+    public fields?: Record<string, string>,
   ) {
     super(message);
   }
@@ -34,7 +35,7 @@ export async function api<T>(url: string, init?: RequestInit & { json?: unknown 
     } catch {
       /* non-JSON error */
     }
-    throw new ClientError(res.status, payload.error ?? `Request failed (${res.status})`, payload.code ?? "error");
+    throw new ClientError(res.status, payload.error ?? `Request failed (${res.status})`, payload.code ?? "error", payload.fields);
   }
   return (await res.json()) as T;
 }

@@ -1,13 +1,14 @@
+import { eq, and, sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { db } from "@/db";
-import { leadKindEnum, leads } from "@/db/schema";
-import { handler, oneOf, readJson, str } from "@/lib/api";
+import { leads } from "@/db/schema";
+import { handler, readJson } from "@/lib/api";
 import { getCurrentUser, requireActor } from "@/lib/auth";
-import { listLeads, resolveSpace, resolveUser } from "@/lib/queries";
-import { assertRateLimit, evaluateBadges, fileAutoReport, screenContent } from "@/lib/services";
+import { listLeads, resolveUser } from "@/lib/queries";
+import { assertRateLimit, fileAutoReport, screenContent } from "@/lib/services";
 import { isRankMode } from "@/lib/sorting";
-import { routes, slugify } from "@/lib/utils";
-import { LEAD_CATEGORIES } from "@/lib/constants";
+import { leadBody, parseLeadFields, parseSubmissionKey } from "@/lib/lead-input";
+import { leadWriteValues, submissionResponse } from "@/lib/lead-submissions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export const GET = handler(async (req: NextRequest) => {
   }
   const page = await listLeads({
     authorId,
+    openOnly: sp.get("active") === "1",
     mode: isRankMode(modeParam) ? modeParam : "new",
     category: sp.get("category") ?? undefined,
     kind: sp.get("kind") ?? undefined,
@@ -30,59 +32,29 @@ export const GET = handler(async (req: NextRequest) => {
     cursor: Number.parseInt(sp.get("cursor") ?? "0", 10) || 0,
     viewerId: viewer?.id ?? null,
   });
-  return Response.json(page);
+  return Response.json(page, { headers: { "Cache-Control": "private, no-store" } });
 });
 
-interface CreateLeadBody extends Record<string, unknown> {
-  title?: string;
-  description?: string;
-  category?: string;
-  kind?: string;
-  budgetMin?: number;
-  budgetMax?: number;
-  currency?: string;
-  location?: string;
-  spaceSlug?: string;
-}
+// Serialize submissions per author so retry and rate-limit checks see committed rows.
+const LEAD_SUBMISSION_LOCK = 4_242_003;
 
 export const POST = handler(async (req: NextRequest) => {
   const actor = await requireActor();
-  const body = await readJson<CreateLeadBody>(req);
-  const title = str(body.title, "title", { min: 10, max: 180 });
-  const description = str(body.description, "description", { min: 40, max: 20_000 });
-  const category = oneOf(body.category, LEAD_CATEGORIES, "category");
-  const kind = oneOf(body.kind ?? "contract", leadKindEnum.enumValues, "kind");
-  const budgetMin = Math.max(0, Math.round(Number(body.budgetMin) || 0));
-  const budgetMax = Math.max(budgetMin, Math.round(Number(body.budgetMax) || 0));
-  const currency = oneOf((body.currency ?? "USD").toString().toUpperCase(), ["USD", "EUR", "GBP"], "currency");
-  const location = typeof body.location === "string" && body.location.trim() ? body.location.trim().slice(0, 80) : "Remote";
-  const space = body.spaceSlug ? await resolveSpace(String(body.spaceSlug)) : null;
+  const body = leadBody(await readJson(req));
+  const submissionKey = parseSubmissionKey(body.submissionKey);
 
-  await assertRateLimit(actor.id, "lead");
-  const verdict = screenContent(`${title}\n${description}`);
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(${LEAD_SUBMISSION_LOCK}::integer, ${actor.id}::integer)`);
+    const [existing] = await tx.select({ id: leads.id, revision: leads.revision, publicationStatus: leads.publicationStatus })
+      .from(leads).where(and(eq(leads.authorId, actor.id), eq(leads.submissionKey, submissionKey))).limit(1);
+    if (existing) return submissionResponse(existing);
 
-  const created = await db.transaction(async (tx) => {
-    const [lead] = await tx
-      .insert(leads)
-      .values({
-        authorId: actor.id,
-        spaceId: space?.space.id ?? null,
-        slug: slugify(title),
-        title,
-        description,
-        category,
-        kind,
-        budgetMin,
-        budgetMax,
-        currency,
-        location,
-        // Verified Pros get their leads auto-verified; others queue for vetting.
-        isVerified: actor.isVerified,
-      })
-      .returning();
-    await fileAutoReport(tx, "lead", lead.id, space?.space.id ?? null, verdict);
-    return lead;
+    const fields = parseLeadFields(body);
+    await assertRateLimit(actor.id, "lead", tx);
+    const verdict = screenContent(`${fields.title}\n${fields.description}\n${fields.location}`);
+    const values = await leadWriteValues(tx, fields);
+    const [created] = await tx.insert(leads).values({ ...values, authorId: actor.id, submissionKey, publicationStatus: "pending_review" }).returning();
+    await fileAutoReport(tx, "lead", created.id, created.spaceId, verdict);
+    return submissionResponse(created, 201);
   });
-  const newBadges = await evaluateBadges(actor.id);
-  return Response.json({ id: created.id, href: routes.lead(created.id, created.slug), newBadges: newBadges.map((b) => b.name), flagged: verdict.needsReview }, { status: 201 });
 });

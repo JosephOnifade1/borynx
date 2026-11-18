@@ -1,124 +1,17 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { GitBranch, LogIn, ShieldCheck } from "lucide-react";
-import Link from "next/link";
+import { GitBranch, LogIn } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useSession } from "@/components/providers";
 import { clearStoredToken, storeToken } from "@/lib/browser";
 import { Avatar, VerifiedMark } from "@/components/primitives";
 import { api, ClientError } from "@/lib/client";
-import { LEAD_CATEGORIES, LEAD_KIND_LABEL } from "@/lib/constants";
-import { cn, routes } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/ui";
 
 const useNotify = () => useUiStore((s) => s.notify);
-
-/* ---------------- Lead composer ---------------- */
-
-export function LeadComposer({ spaces }: { spaces: Array<{ slug: string; name: string }> }) {
-  const router = useRouter();
-  const notify = useNotify();
-  const user = useSession();
-  const [form, setForm] = useState({ title: "", description: "", category: "Software", kind: "contract", budgetMin: "", budgetMax: "", currency: "USD", location: "Remote", spaceSlug: "" });
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const m = useMutation({
-    mutationFn: () => api<{ href: string; newBadges: string[]; flagged: boolean }>("/api/leads", { method: "POST", json: { ...form, budgetMin: Number(form.budgetMin), budgetMax: Number(form.budgetMax) } }),
-    onSuccess: (r) => {
-      notify(r.flagged ? "Lead posted — queued for review" : "Lead posted", "success");
-      r.newBadges.forEach((b) => notify(`Badge unlocked: ${b}`, "success"));
-      router.push(r.href);
-      router.refresh();
-    },
-    onError: (e) => notify(e instanceof ClientError ? e.message : "Failed to post lead", "error"),
-  });
-  return (
-    <form
-      className="space-y-5 px-5 py-6 sm:px-8"
-      onSubmit={(e) => {
-        e.preventDefault();
-        m.mutate();
-      }}
-    >
-      <div className="grid gap-4 sm:grid-cols-3">
-        <label className="block sm:col-span-1">
-          <span className="eyebrow">Type</span>
-          <select value={form.kind} onChange={set("kind")} className="field mt-1.5">
-            {Object.entries(LEAD_KIND_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="eyebrow">Category</span>
-          <select value={form.category} onChange={set("category")} className="field mt-1.5">
-            {LEAD_CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="eyebrow">Space (optional)</span>
-          <select value={form.spaceSlug} onChange={set("spaceSlug")} className="field mt-1.5">
-            <option value="">— none —</option>
-            {spaces.map((s) => (
-              <option key={s.slug} value={s.slug}>
-                b/{s.slug}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <label className="block">
-        <span className="eyebrow">Title</span>
-        <input value={form.title} onChange={set("title")} className="field mt-1.5 text-[15px] font-medium" placeholder="What needs doing, for whom, by when" minLength={10} maxLength={180} required />
-      </label>
-      <label className="block">
-        <span className="eyebrow">Brief · markdown</span>
-        <textarea value={form.description} onChange={set("description")} rows={10} className="field mt-1.5 font-mono text-[13px]" placeholder="Scope, deliverables, constraints, how you'll evaluate bids. Minimum 40 characters." minLength={40} required />
-      </label>
-      <div className="grid gap-4 sm:grid-cols-4">
-        <label className="block">
-          <span className="eyebrow">Budget min</span>
-          <input type="number" min={0} value={form.budgetMin} onChange={set("budgetMin")} className="field num mt-1.5" placeholder="0" />
-        </label>
-        <label className="block">
-          <span className="eyebrow">Budget max</span>
-          <input type="number" min={0} value={form.budgetMax} onChange={set("budgetMax")} className="field num mt-1.5" placeholder="0" />
-        </label>
-        <label className="block">
-          <span className="eyebrow">Currency</span>
-          <select value={form.currency} onChange={set("currency")} className="field mt-1.5">
-            <option>USD</option>
-            <option>EUR</option>
-            <option>GBP</option>
-          </select>
-        </label>
-        <label className="block">
-          <span className="eyebrow">Location</span>
-          <input value={form.location} onChange={set("location")} className="field mt-1.5" maxLength={80} />
-        </label>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="flex items-center gap-1.5 text-[11.5px] text-ink-3">
-          <ShieldCheck size={13} className={user?.isVerified ? "text-verdigris" : "text-ink-4"} />
-          {user?.isVerified ? "You're a Verified Pro — this lead publishes with the verified mark." : "Unverified leads publish without the verified mark until a moderator vets them."}
-        </p>
-        <div className="flex gap-2">
-          <Link href={routes.leads()} className="btn">
-            Cancel
-          </Link>
-          <button type="submit" className="btn btn-primary" disabled={m.isPending}>
-            {m.isPending ? "Posting…" : "Post lead"}
-          </button>
-        </div>
-      </div>
-    </form>
-  );
-}
 
 /* ---------------- Join ---------------- */
 

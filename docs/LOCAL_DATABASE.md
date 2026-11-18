@@ -14,7 +14,7 @@ For your own dedicated local DB, copy `.env.example` to `.env.local`, set `DATAB
 ### Sign-in boundary
 
 - Demo fixtures, handle-only sign-in, and the iframe header fallback require the same server-side opt-in. Only the five reserved fictional handles can obtain demo sessions. No arbitrary account creation is offered.
-- With the flag off, or under `next start` (production), new demo sign-in returns `404`. Existing demo cookies, `x-bx-session`, and bearer tokens do not authenticate. The app won't ship the persona picker or the fetch shim. No automatic purge of existing rows or sessions is performed. Real sign-in is a later phase; do not restore legacy session acceptance when adding it.
+- With the flag off, or under `next start` (production), new demo sign-in returns `404`. Existing demo cookies, `x-bx-session`, and bearer tokens do not authenticate. The app won't display the persona picker or install the fetch shim. No automatic purge of existing rows or sessions is performed. Real sign-in is a later phase; do not restore legacy session acceptance when adding it.
 - The badge catalogue is application data and still loads in non-demo mode. No demo users, posts, or leads are inserted then. `/api/health` returns `{ "ok": true }` or a `503` with `{ "ok": false }`; it does not publish database diagnostics. Detailed `/status` information is for the isolated demo only.
 
 ## Migration ledger
@@ -30,6 +30,6 @@ A fresh database can have an empty ledger. A database with untracked tables/enum
 | `npm ci` | Immutable dependency install from the lockfile. |
 | `npm test` | Unit suite, including demo-mode and database-URL policy. |
 | `npm run typecheck`, `npm run lint`, `npm run build` | TypeScript, lint, and production compile. The pre-existing lint fixes are isolated in their own commit. |
-| `npm run test:db` | Creates its own fresh databases. Boots all five migrations, upgrades from `0002` with a legacy lead, bid and thread, verifies concurrent and repeat runs do not double-apply, and refuses untracked or mismatched ledgers. Boots demo and non-demo apps, checks minimal readiness responses, tests demo transports and guest write denial, and runs the post edit/delete integration tests. |
+| `npm run test:db` | Creates its own fresh databases. Boots the full current journal, upgrades from `0002` with legacy leads, a bid and a thread, and from `0004` with a recorded award, verifies concurrent and repeat runs do not double-apply, and refuses untracked or mismatched ledgers. Boots demo and non-demo apps, checks minimal readiness responses, tests demo transports and guest write denial, and runs the post edit/delete and Phase 1 lead publication integration tests. |
 
-`test:db` does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the three post-author HTTP cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.
+`test:db` does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the HTTP integration cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.

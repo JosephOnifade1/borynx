@@ -2,8 +2,9 @@ import { NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { leadBids, leads } from "@/db/schema";
-import { handler, num } from "@/lib/api";
+import { handler } from "@/lib/api";
 import { HttpError, requireActor } from "@/lib/auth";
+import { lockLead, parseLeadId, publicLead } from "@/lib/lead-access";
 import { createNotification } from "@/lib/notifications";
 import { karmaForLeadWon } from "@/lib/karma";
 import { applyKarma, evaluateBadges } from "@/lib/services";
@@ -13,27 +14,18 @@ export const dynamic = "force-dynamic";
 
 export const POST = handler(async (_req: NextRequest, { params }) => {
   const actor = await requireActor();
-  const leadId = num(params.id, "leadId");
-  const bidId = num(params.bidId, "bidId");
+  const leadId = parseLeadId(params.id);
+  const bidId = parseLeadId(params.bidId);
 
-  const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
-  if (!lead || lead.isRemoved) throw new HttpError(404, "Lead not found", "not_found");
+  return db.transaction(async (tx) => {
+    const lead = await lockLead(tx, leadId, publicLead);
+    const isOwner = lead.authorId === actor.id;
+    const isStaff = actor.role === "admin" || actor.role === "moderator";
+    if (!isOwner && !isStaff) throw new HttpError(403, "Only the lead creator can accept a bid", "forbidden");
 
-  const isOwner = lead.authorId === actor.id;
-  const isStaff = actor.role === "admin" || actor.role === "moderator";
-  if (!isOwner && !isStaff) {
-    throw new HttpError(403, "Only the lead creator can accept a bid", "forbidden");
-  }
+    const [bid] = await tx.select().from(leadBids).where(and(eq(leadBids.id, bidId), eq(leadBids.leadId, leadId))).limit(1);
+    if (!bid) throw new HttpError(404, "Bid not found", "not_found");
 
-  const [bid] = await db
-    .select()
-    .from(leadBids)
-    .where(and(eq(leadBids.id, bidId), eq(leadBids.leadId, leadId)))
-    .limit(1);
-
-  if (!bid) throw new HttpError(404, "Bid not found", "not_found");
-
-  await db.transaction(async (tx) => {
     // Reset any previous accepted bids
     await tx.update(leadBids).set({ isAccepted: false }).where(eq(leadBids.leadId, leadId));
 
@@ -68,12 +60,6 @@ export const POST = handler(async (_req: NextRequest, { params }) => {
       },
       tx,
     );
-  });
-
-  return Response.json({
-    ok: true,
-    acceptedBidId: bid.id,
-    assignedUserId: bid.userId,
-    status: "closed",
+    return Response.json({ ok: true, acceptedBidId: bid.id, assignedUserId: bid.userId, status: "closed" });
   });
 });

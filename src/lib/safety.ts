@@ -54,7 +54,14 @@ export function evaluateContent(text: string): SafetyVerdict {
   if (links.length >= 4) flags.push({ code: "link_spam", detail: `${links.length} links`, weight: 0.3 + 0.1 * (links.length - 4) });
   const shorteners = links.filter((l) => SHORTENERS.some((s) => l.includes(s)));
   if (shorteners.length) flags.push({ code: "shortener", detail: shorteners.join(", "), weight: 0.3 });
-  const suspicious = links.filter((l) => SUSPICIOUS_TLDS.some((tld) => new URL(l).hostname.endsWith(tld)));
+  const suspicious = links.filter((link) => {
+    try {
+      const hostname = new URL(link).hostname;
+      return SUSPICIOUS_TLDS.some((tld) => hostname.endsWith(tld));
+    } catch {
+      return false;
+    }
+  });
   if (suspicious.length) flags.push({ code: "suspicious_domain", detail: suspicious.join(", "), weight: 0.35 });
 
   const letters = text.replace(/[^a-z]/gi, "");

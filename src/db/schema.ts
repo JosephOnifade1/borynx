@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
+  check,
   integer,
   jsonb,
   pgEnum,
@@ -11,6 +12,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 
@@ -24,6 +26,8 @@ export const modRoleEnum = pgEnum("mod_role", ["moderator", "owner"]);
 export const postKindEnum = pgEnum("post_kind", ["discussion", "resource", "help", "showcase"]);
 export const leadKindEnum = pgEnum("lead_kind", ["bounty", "contract", "job"]);
 export const leadStatusEnum = pgEnum("lead_status", ["open", "in_review", "closed"]);
+export const leadPublicationEnum = pgEnum("lead_publication_status", ["pending_review", "changes_requested", "published", "rejected"]);
+export const leadBudgetUnitEnum = pgEnum("lead_budget_unit", ["fixed", "hourly"]);
 export const reportTargetEnum = pgEnum("report_target", ["post", "comment", "lead"]);
 export const reportReasonEnum = pgEnum("report_reason", [
   "spam_scam",
@@ -43,6 +47,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "lead_bid",
   "karma_milestone",
   "user_follow",
+  "lead_review_decision",
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -250,11 +255,20 @@ export const leads = pgTable(
     kind: leadKindEnum("kind").default("contract").notNull(),
     budgetMin: integer("budget_min").default(0).notNull(),
     budgetMax: integer("budget_max").default(0).notNull(),
+    budgetUnit: leadBudgetUnitEnum("budget_unit"), // Unknown on historical rows.
+    skillTags: text("skill_tags").array().default(sql`ARRAY[]::text[]`).notNull(),
     currency: varchar("currency", { length: 3 }).default("USD").notNull(),
     location: varchar("location", { length: 80 }).default("Remote").notNull(),
     isVerified: boolean("is_verified").default(false).notNull(),
     isEscrowed: boolean("is_escrowed").default(false).notNull(),
     status: leadStatusEnum("status").default("open").notNull(),
+    publicationStatus: leadPublicationEnum("publication_status").default("pending_review").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedById: integer("reviewed_by_id").references(() => users.id, { onDelete: "set null" }),
+    reviewNote: varchar("review_note", { length: 1000 }),
+    revision: integer("revision").default(1).notNull(),
+    submissionKey: uuid("submission_key"),
     upvotes: integer("upvotes").default(0).notNull(),
     downvotes: integer("downvotes").default(0).notNull(),
     bidCount: integer("bid_count").default(0).notNull(),
@@ -264,7 +278,14 @@ export const leads = pgTable(
     deadlineAt: timestamp("deadline_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("leads_created_idx").on(t.createdAt), index("leads_category_idx").on(t.category)],
+  (t) => [
+    index("leads_created_idx").on(t.createdAt),
+    index("leads_category_idx").on(t.category),
+    index("leads_publication_created_idx").on(t.publicationStatus, t.createdAt),
+    uniqueIndex("leads_author_submission_idx").on(t.authorId, t.submissionKey).where(sql`${t.submissionKey} is not null`),
+    check("leads_skill_tags_max", sql`cardinality(${t.skillTags}) <= 6`),
+    check("leads_revision_positive", sql`${t.revision} >= 1`),
+  ],
 );
 
 export const leadBids = pgTable(

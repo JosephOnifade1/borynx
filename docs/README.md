@@ -29,6 +29,7 @@ This directory contains architectural specifications, implementation blueprints,
 ## Marketplace Roadmap
 
 - [Phase-by-phase marketplace implementation plan](./RECOMMENDATIONS_IMPLEMENTATION_PLAN.md) — Development-first phases with schema, API contracts, and acceptance checks.
+- [Phase 1 lead submission and review](./MARKETPLACE_PHASE_1.md) — Disposable demo walkthrough, confirmed budget and backfill policies, and rollout precautions.
 - [Local database runbook](./LOCAL_DATABASE.md) — Phase 0 setup, migration checks, and demo sign-in safeguards.
 
 ---

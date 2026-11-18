@@ -1,28 +1,31 @@
-import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db } from "@/db";
-import { leads, leadStatusEnum, type Lead } from "@/db/schema";
-import { handler, num, oneOf, readJson } from "@/lib/api";
-import { HttpError, requireActor } from "@/lib/auth";
+import { leads, leadStatusEnum } from "@/db/schema";
+import { handler, oneOf, readJson } from "@/lib/api";
+import { HttpError, isSiteStaff, requireActor } from "@/lib/auth";
+import { lockLead, parseLeadId, publicLead } from "@/lib/lead-access";
+import { leadBody } from "@/lib/lead-input";
 
 export const dynamic = "force-dynamic";
 
-export const PATCH = handler(async (req: NextRequest, { params }) => {
+export const PATCH = handler(async (req, { params }) => {
   const actor = await requireActor();
-  const leadId = num(params.id, "leadId");
-  const body = await readJson<{ status?: string }>(req);
-  const nextStatus = oneOf(body.status, leadStatusEnum.enumValues, "status") as Lead["status"];
+  const leadId = parseLeadId(params.id);
+  const body = leadBody(await readJson(req));
+  const nextStatus = oneOf(body.status, leadStatusEnum.enumValues, "status");
 
-  const [lead] = await db.select().from(leads).where(eq(leads.id, leadId)).limit(1);
-  if (!lead || lead.isRemoved) throw new HttpError(404, "Lead not found", "not_found");
-
-  const isOwner = lead.authorId === actor.id;
-  const isStaff = actor.role === "admin" || actor.role === "moderator";
-  if (!isOwner && !isStaff) {
-    throw new HttpError(403, "Only the lead creator or staff can change status", "forbidden");
-  }
-
-  await db.update(leads).set({ status: nextStatus }).where(eq(leads.id, leadId));
-
-  return Response.json({ ok: true, status: nextStatus });
+  return db.transaction(async (tx) => {
+    const lead = await lockLead(tx, leadId, and(eq(leads.isRemoved, false), or(publicLead, eq(leads.authorId, actor.id))));
+    const isOwner = lead.authorId === actor.id;
+    if (lead.publicationStatus !== "published") {
+      // An unpublished brief can be withdrawn by its author, never opened to bidding here.
+      if (!isOwner || nextStatus !== "closed" || lead.publicationStatus === "rejected") {
+        throw new HttpError(409, "Unpublished submissions cannot be opened to bids.", "lead_conflict");
+      }
+    } else if (!isOwner && !isSiteStaff(actor)) {
+      throw new HttpError(403, "Only the lead creator or staff can change status", "forbidden");
+    }
+    await tx.update(leads).set({ status: nextStatus }).where(eq(leads.id, leadId));
+    return Response.json({ ok: true, status: nextStatus }, { headers: { "Cache-Control": "private, no-store" } });
+  });
 });

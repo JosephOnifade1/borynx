@@ -4,6 +4,8 @@ export class HttpError extends Error {
     public status: number,
     message: string,
     public code: string = "error",
+    public fields?: Record<string, string>,
+    public retryAfter?: number,
   ) {
     super(message);
   }

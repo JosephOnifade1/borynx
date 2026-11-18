@@ -16,22 +16,33 @@ async function usingDatabase<T>(url: string, run: (pool: Pool) => Promise<T>) {
   try { return await run(pool); } finally { await pool.end(); }
 }
 
-async function checkMigrationUpgrade(url: string, directory: string) {
-  // Stop before lead award columns (0003) and author actions (0004). Copy exact historical files.
-  const folder = join(directory, "legacy-migrations");
-  const entries = journal.entries.slice(0, 3);
+async function copyJournalPrefix(directory: string, name: string, length: number) {
+  const folder = join(directory, name);
+  const entries = journal.entries.slice(0, length);
   await mkdir(join(folder, "meta"), { recursive: true });
   await writeFile(join(folder, "meta", "_journal.json"), JSON.stringify({ ...journal, entries }));
   for (const { tag } of entries) await copyFile(join(migrationsFolder(), `${tag}.sql`), join(folder, `${tag}.sql`));
+  return { folder, count: entries.length };
+}
 
+async function checkMigrationUpgrade(url: string, directory: string) {
+  // Stop before lead award columns (0003) and author actions (0004). Copy exact historical files.
+  const { folder, count } = await copyJournalPrefix(directory, "legacy-migrations", 3);
   await usingDatabase(url, async (pool) => {
-    assert.deepEqual(await migrateDatabase(pool, folder), { applied: entries.length, available: entries.length });
+    assert.deepEqual(await migrateDatabase(pool, folder), { applied: count, available: count });
     const { rows: [buyer] } = await pool.query("insert into users (username, display_name) values ('legacy-buyer', 'Legacy Buyer') returning id");
     const { rows: [bidder] } = await pool.query("insert into users (username, display_name) values ('legacy-bidder', 'Legacy Bidder') returning id");
     const { rows: [lead] } = await pool.query("insert into leads (author_id, slug, title, description, category, status) values ($1, 'old-lead', 'Legacy brief', 'Original scope', 'Software Engineering', 'closed') returning id", [buyer.id]);
     const { rows: [bid] } = await pool.query("insert into lead_bids (lead_id, user_id, amount, message) values ($1, $2, 300, 'Legacy pitch') returning id", [lead.id, bidder.id]);
     const { rows: [space] } = await pool.query("insert into spaces (slug, name) values ('legacy-space', 'Legacy Space') returning id");
     const { rows: [post] } = await pool.query("insert into posts (space_id, author_id, slug, title, body) values ($1, $2, 'legacy-thread', 'Legacy thread', '## Original text') returning id", [space.id, buyer.id]);
+    const { rows: hiddenSpaces } = await pool.query("insert into spaces (slug, name, privacy) values ('legacy-restricted', 'Legacy Restricted', 'restricted'), ('legacy-private', 'Legacy Private', 'private') returning id, privacy");
+    for (const hidden of hiddenSpaces) {
+      await pool.query("insert into leads (author_id, space_id, slug, title, description, category, is_verified) values ($1, $2, $3, 'Hidden legacy lead', 'Do not publish', 'Software Engineering', true)", [buyer.id, hidden.id, `legacy-${hidden.privacy}`]);
+    }
+    await pool.query(`insert into leads (author_id, space_id, slug, title, description, category, budget_min, budget_max, currency, is_removed)
+      values ($1, $2, 'legacy-public', 'Previously public', 'Keep its original budget', 'Software Engineering', 3, 8, 'GBP', false),
+             ($1, null, 'legacy-removed', 'Previously removed', 'Still removed', 'Software Engineering', 3, 8, 'GBP', true)`, [buyer.id, space.id]);
 
     const expected = { applied: journal.entries.length, available: journal.entries.length };
     const results = await Promise.all([migrateDatabase(pool), migrateDatabase(pool)]);
@@ -48,11 +59,43 @@ async function checkMigrationUpgrade(url: string, directory: string) {
     assert.deepEqual((await pool.query("select slug, body, edited_at, author_deleted_at from posts where id = $1", [post.id])).rows[0], {
       slug: "legacy-thread", body: "## Original text", edited_at: null, author_deleted_at: null,
     });
+    const { rows: publication } = await pool.query("select slug, publication_status, budget_unit, budget_min, budget_max, currency, reviewed_at, published_at from leads order by slug");
+    assert.deepEqual(publication.map((r) => [r.slug, r.publication_status]), [
+      ["legacy-private", "pending_review"], ["legacy-public", "published"], ["legacy-removed", "pending_review"],
+      ["legacy-restricted", "pending_review"], ["old-lead", "published"],
+    ]);
+    assert.ok(publication.every((r) => r.budget_unit === null && r.reviewed_at === null && r.published_at === null));
+    assert.deepEqual(publication.find((r) => r.slug === "legacy-public"), {
+      slug: "legacy-public", publication_status: "published", budget_unit: null, budget_min: 3, budget_max: 8, currency: "GBP", reviewed_at: null, published_at: null,
+    });
     // A ledger row isn't proof of origin merely because its timestamp looks familiar.
     await pool.query(`update ${LEDGER} set hash = 'unknown' where id = (select min(id) from ${LEDGER})`);
     await assert.rejects(migrateDatabase(pool), /migration history does not match/);
   });
-  console.log("PASS upgrade from 0002 preserves legacy brief, bid, and thread; concurrent/repeat runs do not double-apply; mismatched ledger is rejected");
+  console.log("PASS upgrade from 0002 preserves legacy brief, bid, and thread and only publishes known-public legacy leads; concurrent/repeat runs do not double-apply; mismatched ledger is rejected");
+}
+
+async function checkPhaseZeroUpgrade(url: string, directory: string) {
+  const { folder, count } = await copyJournalPrefix(directory, "phase-zero-migrations", 5);
+  await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, folder), { applied: count, available: count });
+    const { rows: [owner, winner] } = await pool.query("insert into users (username, display_name) values ('legacy-employer', 'Legacy Employer'), ('legacy-winner', 'Legacy Winner') returning id");
+    const { rows: [lead] } = await pool.query(`insert into leads (author_id, slug, title, description, category, status, budget_min, budget_max, currency, assigned_user_id)
+      values ($1, 'old-awarded-lead', 'Already awarded', 'Preserve this closed listing as-is', 'Software Engineering', 'closed', 12, 42, 'EUR', $2) returning id`, [owner.id, winner.id]);
+    const { rows: [bid] } = await pool.query("insert into lead_bids (lead_id, user_id, amount, message, is_accepted) values ($1, $2, 24, 'Existing accepted pitch', true) returning id", [lead.id, winner.id]);
+    await pool.query("update leads set accepted_bid_id = $1, bid_count = 1 where id = $2", [bid.id, lead.id]);
+    assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+    const { rows: [updated] } = await pool.query(`select status, publication_status, assigned_user_id, accepted_bid_id, budget_min, budget_max, budget_unit, currency, bid_count, reviewed_by_id
+      from leads where id = $1`, [lead.id]);
+    assert.deepEqual(updated, {
+      status: "closed", publication_status: "published", assigned_user_id: winner.id, accepted_bid_id: bid.id,
+      budget_min: 12, budget_max: 42, budget_unit: null, currency: "EUR", bid_count: 1, reviewed_by_id: null,
+    });
+    assert.deepEqual((await pool.query("select amount, is_accepted, message from lead_bids where id = $1", [bid.id])).rows[0], {
+      amount: 24, is_accepted: true, message: "Existing accepted pitch",
+    });
+  });
+  console.log("PASS upgrade from Phase 0 (0004) preserves an existing award and budget without inventing review evidence");
 }
 
 async function checkUntrackedSchema(url: string) {
@@ -112,13 +155,13 @@ function transports(token: string) {
   ] as const;
 }
 
-async function runPostAuthorRegressionTests(origin: string) {
-  const child = spawn(process.execPath, [join(process.cwd(), "node_modules", "vitest", "vitest.mjs"), "run", "src/lib/__tests__/post-author.integration.test.ts", "--testTimeout", "30000", "--hookTimeout", "30000"], {
-    env: { ...process.env, BORYNX_POST_TEST_ORIGIN: origin },
+async function runMarketplaceAndAuthorTests(origin: string, url: string) {
+  const child = spawn(process.execPath, [join(process.cwd(), "node_modules", "vitest", "vitest.mjs"), "run", "src/lib/__tests__/post-author.integration.test.ts", "src/lib/__tests__/lead-publication.integration.test.ts", "--no-file-parallelism", "--testTimeout", "60000", "--hookTimeout", "30000"], {
+    env: { ...process.env, BORYNX_POST_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_DATABASE_URL: url },
     stdio: "inherit",
   });
   const code = await new Promise((resolve, reject) => { child.once("close", resolve); child.once("error", reject); });
-  assert.equal(code, 0, "Post author action regression checks failed");
+  assert.equal(code, 0, "Disposable app integration checks failed");
 }
 
 async function checkDemoApp(url: string) {
@@ -155,7 +198,7 @@ async function checkDemoApp(url: string) {
     assert.equal((await jsonPost(`${origin}/api/leads`, {})).status, 401);
     assert.equal((await jsonPost(`${origin}/api/posts`, {})).status, 401);
     console.log("PASS fresh app boot; five fictional roles, hashed sessions, preview transports, and guest write rejection");
-    await runPostAuthorRegressionTests(origin);
+    await runMarketplaceAndAuthorTests(origin, url);
     return reviewerToken;
   });
 }
@@ -193,6 +236,7 @@ async function checkDisabledApp(url: string, oldDemoToken: string) {
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
   await checkMigrationUpgrade(await createDatabase("borynx_demo_upgrade"), directory);
+  await checkPhaseZeroUpgrade(await createDatabase("borynx_demo_phase0_upgrade"), directory);
   const untrackedUrl = await createDatabase("borynx_demo_untracked");
   await checkUntrackedSchema(untrackedUrl);
   await checkBlockedStartup(untrackedUrl);

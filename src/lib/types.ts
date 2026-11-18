@@ -56,6 +56,9 @@ export interface FeedLead {
   budgetMin: number;
   budgetMax: number;
   currency: string;
+  budgetUnit: Lead["budgetUnit"];
+  skillTags: string[];
+  acceptingBids: boolean;
   location: string;
   isVerified: boolean;
   isEscrowed: boolean;
@@ -103,6 +106,7 @@ export interface SearchResult {
 }
 
 export interface ApiError {
+  fields?: Record<string, string>;
   error: string;
   code: string;
 }

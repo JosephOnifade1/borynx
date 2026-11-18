@@ -3,6 +3,7 @@ import Link from "next/link";
 import { db } from "@/db";
 import { comments, leads, posts, spaces, users } from "@/db/schema";
 import { PLATFORM_RULES } from "@/lib/constants";
+import { openPublicLead } from "@/lib/lead-access";
 import { activePost } from "@/lib/post-access";
 import { formatBudget, routes } from "@/lib/utils";
 import { Avatar, VerifiedMark } from "../primitives";
@@ -10,7 +11,7 @@ import { Widget } from "../Widget";
 
 /**
  * Sticky right column shared by every feed page. Four live widgets, all queried server-side:
- * trending communities (7-day thread volume), top open bounties by budget, verified solvers
+ * trending communities (7-day thread volume), recent open bounties, verified solvers
  * (accepted solutions), and platform rules.
  */
 export async function ContextRail() {
@@ -29,10 +30,10 @@ export async function ContextRail() {
       .orderBy(desc(sql`count(${posts.id})`), desc(spaces.memberCount))
       .limit(5),
     db
-      .select({ id: leads.id, slug: leads.slug, title: leads.title, kind: leads.kind, budgetMin: leads.budgetMin, budgetMax: leads.budgetMax, currency: leads.currency, isVerified: leads.isVerified })
+      .select({ id: leads.id, slug: leads.slug, title: leads.title, kind: leads.kind, budgetMin: leads.budgetMin, budgetMax: leads.budgetMax, currency: leads.currency, budgetUnit: leads.budgetUnit, isVerified: leads.isVerified })
       .from(leads)
-      .where(and(eq(leads.isRemoved, false), eq(leads.status, "open")))
-      .orderBy(desc(leads.budgetMax))
+      .where(openPublicLead)
+      .orderBy(desc(leads.createdAt), desc(leads.id))
       .limit(4),
     db
       .select({
@@ -70,7 +71,7 @@ export async function ContextRail() {
         </ol>
       </Widget>
 
-      <Widget title="Top bounties & leads" action={<Link href={routes.leads()} className="text-[11.5px] text-ember hover:underline">all →</Link>}>
+      <Widget title="Open bounties & leads" action={<Link href={routes.leads()} className="text-[11.5px] text-ember hover:underline">all →</Link>}>
         {topLeads.length === 0 ? (
           <p className="text-[12.5px] text-ink-3">No open leads right now.</p>
         ) : (
@@ -80,7 +81,7 @@ export async function ContextRail() {
                 <Link href={routes.lead(l.id, l.slug)} className="group block">
                   <span className="line-clamp-2 text-[13px] font-medium leading-snug group-hover:underline">{l.title}</span>
                   <span className="mt-0.5 flex items-center gap-2 text-[11px]">
-                    <span className="num tag tag-verdigris">{formatBudget(l.budgetMin, l.budgetMax, l.currency)}</span>
+                    <span className="num tag tag-verdigris">{formatBudget(l.budgetMin, l.budgetMax, l.currency, l.budgetUnit)}</span>
                     <span className="tag">{l.kind === "bounty" ? "Bounty" : l.kind === "job" ? "Role" : "Contract"}</span>
                     {l.isVerified && <VerifiedMark size={11} />}
                   </span>
