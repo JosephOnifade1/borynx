@@ -2,8 +2,7 @@ import { Activity, CheckCircle2, Circle, Database, KeyRound, Table2 } from "luci
 import Link from "next/link";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { databaseSnapshot, ensureDatabase } from "@/db/bootstrap";
-import { getSession } from "@/lib/auth";
-import { isDemoMode } from "@/lib/demo-mode";
+import { getDemoAccountMode, getSession } from "@/lib/auth";
 import { routes } from "@/lib/utils";
 
 export const metadata = { title: "System status" };
@@ -27,7 +26,7 @@ function Step({ label, done, detail }: { label: string; done: boolean; detail?: 
 
 export default async function StatusPage() {
   const status = await ensureDatabase();
-  if (!isDemoMode() || !status.ok) {
+  if (!status.ok || await getDemoAccountMode() === "disabled") {
     return (
       <PageFrame header={<PageHeader eyebrow="System" title="Service status" />}><p className="px-5 py-6 text-[13px]">{status.ok ? "Borynx is operational." : "Borynx is temporarily unavailable."}</p></PageFrame>
     );

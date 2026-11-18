@@ -1,136 +1,75 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
-import { CheckCircle2, ChevronDown, Trophy } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, ClientError } from "@/lib/client";
-import type { Lead } from "@/db/schema";
-import { cn } from "@/lib/utils";
-import { useUiStore } from "@/store/ui";
+import { api } from "@/lib/client";
+import type { LeadAction } from "@/lib/lead-engagement";
 
-interface LeadStatusSelectorProps {
-  leadId: number;
-  currentStatus: Lead["status"];
-  className?: string;
-}
+type Outcome = Exclude<LeadAction, "withdraw">;
+const OUTCOMES = {
+  close_without_hire: { label: "Close without hire", confirm: "Confirm close", note: "No winner will be selected. This lead cannot be reopened." },
+  complete: { label: "Mark complete", confirm: "Confirm completion", note: "Record that the work is complete. This does not confirm payment." },
+  cancel: { label: "Cancel engagement", confirm: "Confirm cancellation", note: "Cancel the engagement without marking it complete. The original award stays on record, and bidding will not reopen." },
+} satisfies Record<Outcome, { label: string; confirm: string; note: string }>;
 
-export function LeadStatusSelector({
-  leadId,
-  currentStatus,
-  className,
-}: LeadStatusSelectorProps) {
+export function LeadOutcomeControls({ leadId, awarded }: { leadId: number; awarded: boolean }) {
   const router = useRouter();
-  const notify = useUiStore((s) => s.notify);
-  const [status, setStatus] = useState<Lead["status"]>(currentStatus);
-
-  const mutation = useMutation({
-    mutationFn: (newStatus: Lead["status"]) =>
-      api<{ ok: boolean; status: Lead["status"] }>(`/api/leads/${leadId}/status`, {
-        method: "PATCH",
-        json: { status: newStatus },
-      }),
-    onSuccess: (data) => {
-      setStatus(data.status);
-      notify(`Lead status updated to ${data.status.replace("_", " ")}`, "success");
+  const query = useQueryClient();
+  const [selected, setSelected] = useState<Outcome | null>(null);
+  const actions: Outcome[] = awarded ? ["complete", "cancel"] : ["close_without_hire"];
+  const outcome = useMutation({
+    mutationFn: (action: Outcome) => api(`/api/leads/${leadId}/status`, { method: "PATCH", json: { action } }),
+    onSuccess: () => {
+      void query.invalidateQueries({ queryKey: ["leads"] });
       router.refresh();
     },
-    onError: (err) => {
-      notify(err instanceof ClientError ? err.message : "Failed to update status", "error");
-    },
   });
-
+  const locked = outcome.isPending || outcome.isSuccess;
   return (
-    <div className={cn("inline-flex items-center gap-2", className)}>
-      <span className="eyebrow text-ink-3">Status:</span>
-      <select
-        value={status}
-        disabled={mutation.isPending}
-        onChange={(e) => {
-          const s = e.target.value as Lead["status"];
-          setStatus(s);
-          mutation.mutate(s);
-        }}
-        className="field h-8 py-0 pl-2 pr-7 text-[12.5px] font-medium"
-      >
-        <option value="open">Open (Accepting bids)</option>
-        <option value="in_review">In Review</option>
-        <option value="closed">Closed / Awarded</option>
-      </select>
+    <div className="rounded-md border border-line bg-sunken/40 p-3.5">
+      <p className="eyebrow">Buyer actions</p>
+      {selected ? (
+        <>
+          <p className="mt-2 text-[13px] text-ink-2">{OUTCOMES[selected].note}</p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <button type="button" className="btn btn-primary btn-sm" disabled={locked} onClick={() => outcome.mutate(selected)}>{locked ? "Saving…" : OUTCOMES[selected].confirm}</button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={locked} onClick={() => { outcome.reset(); setSelected(null); }}>Go back</button>
+          </div>
+        </>
+      ) : (
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {actions.map((action) => (
+            <button key={action} type="button" className={`btn btn-sm ${action === "complete" ? "btn-primary" : action === "cancel" ? "text-danger" : ""}`}
+              onClick={() => setSelected(action)}>{OUTCOMES[action].label}</button>
+          ))}
+        </div>
+      )}
+      {outcome.isError && <p role="alert" className="mt-2 text-[13px] text-danger">{outcome.error.message}</p>}
     </div>
   );
 }
 
-interface AcceptBidButtonProps {
-  leadId: number;
-  bidId: number;
-  freelancerName: string;
-  isAccepted: boolean;
-}
-
-export function AcceptBidButton({
-  leadId,
-  bidId,
-  freelancerName,
-  isAccepted,
-}: AcceptBidButtonProps) {
+export function AwardBidButton({ leadId, bidId, bidderName }: { leadId: number; bidId: number; bidderName: string }) {
   const router = useRouter();
-  const notify = useUiStore((s) => s.notify);
+  const query = useQueryClient();
   const [confirming, setConfirming] = useState(false);
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      api<{ ok: boolean }>(`/api/leads/${leadId}/bids/${bidId}/accept`, {
-        method: "POST",
-      }),
+  const award = useMutation({
+    mutationFn: () => api(`/api/leads/${leadId}/bids/${bidId}/accept`, { method: "POST" }),
     onSuccess: () => {
-      notify(`Bid accepted! Awarded to ${freelancerName}`, "success");
-      setConfirming(false);
+      void query.invalidateQueries({ queryKey: ["leads"] });
       router.refresh();
     },
-    onError: (err) => {
-      notify(err instanceof ClientError ? err.message : "Failed to accept bid", "error");
-    },
   });
-
-  if (isAccepted) {
-    return (
-      <span className="tag tag-gold inline-flex items-center gap-1 font-semibold">
-        <Trophy size={11} /> Accepted Winning Bid
-      </span>
-    );
-  }
-
-  if (confirming) {
-    return (
-      <div className="inline-flex items-center gap-1.5 animate-in fade-in">
-        <span className="text-[11.5px] text-ink-2">Award lead to {freelancerName}?</span>
-        <button
-          type="button"
-          onClick={() => mutation.mutate()}
-          disabled={mutation.isPending}
-          className="btn btn-primary h-6 px-2 text-[11px]"
-        >
-          {mutation.isPending ? "Accepting…" : "Confirm"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          className="btn btn-ghost h-6 px-1.5 text-[11px] text-ink-3"
-        >
-          Cancel
-        </button>
+  const locked = award.isPending || award.isSuccess;
+  return confirming ? (
+    <div className="mt-2.5 rounded-md border border-line px-3 py-2.5">
+      <p className="text-[13px] text-ink-2">Award this lead to <strong>{bidderName}</strong>? You can only select one winner.</p>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <button type="button" className="btn btn-primary btn-sm" disabled={locked} onClick={() => award.mutate()}>{locked ? "Awarding…" : "Confirm award"}</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={locked} onClick={() => { award.reset(); setConfirming(false); }}>Go back</button>
       </div>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setConfirming(true)}
-      className="btn h-6 px-2 text-[11.5px] font-medium text-verdigris hover:border-verdigris hover:bg-verdigris/10 transition-colors"
-    >
-      <CheckCircle2 size={12} /> Accept Bid
-    </button>
-  );
+      {award.isError && <p role="alert" className="mt-2 text-[13px] text-danger">{award.error.message}</p>}
+    </div>
+  ) : <button type="button" className="btn btn-sm mt-2.5" aria-label={`Award lead to ${bidderName}`} onClick={() => setConfirming(true)}>Award lead</button>;
 }

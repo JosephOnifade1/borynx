@@ -5,14 +5,13 @@ import { leads, spaces } from "@/db/schema";
 import { LeadComposer } from "@/components/leads/LeadComposer";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
 import { PageFrame, PageHeader } from "@/components/PageFrame";
-import { getCurrentUser, isSuspended, restrictionMessage } from "@/lib/auth";
-import { isDemoMode } from "@/lib/demo-mode";
+import { getCurrentUser, getDemoAccountMode, isSuspended, restrictionMessage } from "@/lib/auth";
 import { routes } from "@/lib/utils";
 
 export const metadata = { title: "Draft a lead", robots: { index: false } };
 
 export default async function NewLeadPage() {
-  const user = await getCurrentUser();
+  const [user, demoAccountMode] = await Promise.all([getCurrentUser(), getDemoAccountMode()]);
   const [availableSpaces, submissions] = await Promise.all([
     db.select({ slug: spaces.slug, name: spaces.name }).from(spaces).where(eq(spaces.privacy, "public")).orderBy(spaces.name),
     user ? db.select({ id: leads.id, title: leads.title, state: leads.publicationStatus, status: leads.status, submissionKey: leads.submissionKey }).from(leads)
@@ -37,7 +36,7 @@ export default async function NewLeadPage() {
           <p className="eyebrow text-danger">Posting restricted</p>
           <p className="mt-2 text-[14px] text-ink-2">{restrictionMessage(user)}</p>
         </div>
-      ) : <LeadComposer spaces={availableSpaces} demoMode={isDemoMode()} />}
+      ) : <LeadComposer spaces={availableSpaces} demoMode={demoAccountMode !== "disabled"} />}
     </PageFrame>
   );
 }

@@ -4,8 +4,8 @@ import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { db } from "@/db";
 import { memberships, sessions, users, type User } from "@/db/schema";
-import { isDemoMode } from "./demo-mode";
-import { isDemoHandle } from "./demo-personas";
+import { demoAccountMode, isDemoMode } from "./demo-mode";
+import { isDemoAccountAllowed } from "./demo-personas";
 import { HttpError } from "./errors";
 
 export { HttpError };
@@ -16,6 +16,9 @@ export const SESSION_HEADER = "x-bx-session";
 export const REFERRAL_COOKIE = "bx_ref";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+/** The same request policy gates the picker, session issuance, and every token transport. */
+export const getDemoAccountMode = cache(async () => isDemoMode() ? demoAccountMode(await headers()) : "disabled" as const);
 
 export type SessionTransport = "cookie" | "header";
 
@@ -69,12 +72,15 @@ export function buildCookie(req: Request, name: string, value: string, maxAgeSec
 
 export const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
 
-export async function createDemoSession(userId: number, userAgent: string): Promise<{ token: string; expiresAt: Date }> {
-  if (!isDemoMode()) throw new HttpError(404, "Sign-in is unavailable", "not_found");
+type SuspensionState = Pick<User, "isBanned" | "banExpiresAt">;
+
+export async function createDemoSession(user: Pick<User, "id" | "username"> & SuspensionState, userAgent: string): Promise<{ token: string; expiresAt: Date }> {
+  if (!isDemoAccountAllowed(await getDemoAccountMode(), user.username)) throw new HttpError(404, "Demo account not found", "not_found");
+  if (isSuspended(user)) throw new HttpError(403, "Account is suspended or banned", "restricted");
   const token = randomBytes(32).toString("base64url"); // 43 chars, 256 bits
   const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
   await db.delete(sessions).where(lt(sessions.expiresAt, new Date())); // housekeeping
-  await db.insert(sessions).values({ id: hashToken(token), userId, userAgent: userAgent.slice(0, 255), expiresAt });
+  await db.insert(sessions).values({ id: hashToken(token), userId: user.id, userAgent: userAgent.slice(0, 255), expiresAt });
   return { token, expiresAt };
 }
 
@@ -100,9 +106,10 @@ async function tokenCandidates(): Promise<Array<{ token: string; transport: Sess
 
 /** Resolves the session from the cookie first, then the header. Memoised per request. */
 export const getSession = cache(async (): Promise<ResolvedSession | null> => {
-  // Every existing session was issued by handle-only demo login. Until verified auth
-  // has its own session boundary, reject those cookies as well as header tokens off-demo.
-  if (!isDemoMode()) return null;
+  // These are handle-only demo sessions, not real authentication. All transports use
+  // the same account policy as login, even for a session issued before a mode change.
+  const mode = await getDemoAccountMode();
+  if (mode === "disabled") return null;
   const candidates = (await tokenCandidates()).map((c) => ({ ...c, id: hashToken(c.token) }));
   if (candidates.length === 0) return null;
   const rows = await db
@@ -112,7 +119,7 @@ export const getSession = cache(async (): Promise<ResolvedSession | null> => {
     .where(and(inArray(sessions.id, candidates.map((c) => c.id)), gt(sessions.expiresAt, new Date())));
   for (const candidate of candidates) {
     const row = rows.find((r) => r.id === candidate.id);
-    if (!row || !isDemoHandle(row.user.username)) continue;
+    if (!row || !isDemoAccountAllowed(mode, row.user.username)) continue;
     if (Date.now() - row.lastSeenAt.getTime() > 3_600_000) {
       void db.update(sessions).set({ lastSeenAt: new Date() }).where(eq(sessions.id, row.id)).catch(() => undefined);
     }
@@ -151,7 +158,7 @@ export function toPublicUser(u: User): PublicUser {
   };
 }
 
-export function isSuspended(user: User, now: Date = new Date()): boolean {
+export function isSuspended(user: SuspensionState, now: Date = new Date()): boolean {
   if (!user.isBanned) return false;
   if (user.banExpiresAt && user.banExpiresAt.getTime() < now.getTime()) return false; // suspension lapsed
   return true;
@@ -190,7 +197,7 @@ export async function canModerateSpace(user: User, spaceId: number): Promise<boo
 }
 
 export async function requireStaff(): Promise<User> {
-  const user = await requireUser();
+  const user = await requireActor();
   if (!isSiteStaff(user)) throw new HttpError(403, "Moderator access required", "forbidden");
   return user;
 }

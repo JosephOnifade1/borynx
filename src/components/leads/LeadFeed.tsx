@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { Lock, MapPin, ShieldCheck, Users } from "lucide-react";
+import { MapPin, ShieldCheck, Users } from "lucide-react";
 import Link from "next/link";
 import { memo, useEffect, useMemo, useState } from "react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
@@ -11,12 +11,13 @@ import { ReportButton } from "@/components/shell/ReportModal";
 import { UserHoverCard } from "@/components/UserHoverCard";
 import { useWindowScrollMargin } from "@/components/useWindowScrollMargin";
 import { api, queryKeys } from "@/lib/client";
-import { LEAD_CATEGORIES, LEAD_KIND_LABEL } from "@/lib/constants";
+import { LEAD_CATEGORIES, LEAD_KIND_LABEL, leadBudgetUnitLabel } from "@/lib/constants";
 import { LEAD_SKILLS } from "@/lib/lead-input";
 import { RANK_MODES, type RankMode } from "@/lib/sorting";
 import type { FeedLead, FeedPage } from "@/lib/types";
 import { cn, formatBudget, routes, timeAgo } from "@/lib/utils";
 import { ShareButton, SortSelector, VoteRail } from "../feed/controls";
+import { LeadEngagementBadge } from "./LeadEngagementBadge";
 
 const KIND_TAG: Record<FeedLead["kind"], string> = { bounty: "tag tag-ember", contract: "tag tag-verdigris", job: "tag tag-gold" };
 
@@ -36,12 +37,7 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
               <ShieldCheck size={10} /> verified
             </span>
           )}
-          {lead.isEscrowed && (
-            <span className="tag">
-              <Lock size={10} /> escrow
-            </span>
-          )}
-          {!lead.acceptingBids && <span className="tag tag-danger">{lead.status === "open" ? "Deadline passed" : lead.status.replace("_", " ")}</span>}
+          <LeadEngagementBadge engagement={lead.engagement} />
           {lead.space && (
             <Link href={routes.space(lead.space.slug)} className="num hover:underline">
               b/{lead.space.slug}
@@ -70,6 +66,7 @@ export const LeadRow = memo(function LeadRow({ lead }: { lead: FeedLead }) {
 
         <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
           <span className="num tag tag-verdigris text-[12px] normal-case tracking-normal">{formatBudget(lead.budgetMin, lead.budgetMax, lead.currency, lead.budgetUnit)}</span>
+          {lead.budgetUnit !== "hourly" && <span>{leadBudgetUnitLabel(lead.budgetUnit)}</span>}
           <span className="inline-flex items-center gap-1">
             <MapPin size={11} /> {lead.location}
           </span>

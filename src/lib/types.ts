@@ -1,5 +1,6 @@
 import type { Badge, Lead, LeadKind, Post, PostKind, Space } from "@/db/schema";
 import type { PublicUser } from "./auth";
+import type { LeadEngagementLabel } from "./lead-engagement";
 import type { RankMode } from "./sorting";
 
 export interface AuthorSummary {
@@ -63,6 +64,7 @@ export interface FeedLead {
   isVerified: boolean;
   isEscrowed: boolean;
   status: Lead["status"];
+  engagement: LeadEngagementLabel;
   upvotes: number;
   downvotes: number;
   bidCount: number;

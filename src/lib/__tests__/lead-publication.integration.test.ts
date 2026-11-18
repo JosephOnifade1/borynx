@@ -119,8 +119,8 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
       [`/api/leads/${id}/bids`, pitch], [`/api/leads/${id}/vote`, { value: 1 }],
       [`/api/leads/${id}/bids/1/accept`, {}], ["/api/reports", { targetType: "lead", targetId: id, reason: "spam_scam" }],
     ] as const) expect((await post(path, body, bidderA)).status, path).toBe(404);
-    expect((await patch(`/api/leads/${id}/status`, { status: "open" }, bidderA)).status).toBe(404);
-    expect((await patch(`/api/leads/${id}/status`, { status: "open" }, buyer)).status).toBe(409);
+    expect((await patch(`/api/leads/${id}/status`, { action: "close_without_hire" }, bidderA)).status).toBe(404);
+    expect((await patch(`/api/leads/${id}/status`, { action: "close_without_hire" }, buyer)).status).toBe(409);
     expect((await patch(`/api/leads/${id}`, { ...payload, revision: 1 }, bidderA)).status).toBe(404);
 
     const { rows: [flag] } = await pool.query("select r.id, r.space_id from reports r where target_type = 'lead' and target_id = $1 and reason = 'automated_filter'", [id]);
@@ -173,7 +173,7 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
     expect((await post(`/api/leads/${id}/bids`, pitch, bidderB)).status).toBe(409);
     expect(await request(publicPath).then((r) => r.text())).toContain("Deadline passed");
     await pool.query("update leads set deadline_at = null where id = $1", [id]);
-    expect((await patch(`/api/leads/${id}/status`, { status: "closed" }, buyer)).status).toBe(200);
+    expect((await patch(`/api/leads/${id}/status`, { action: "close_without_hire" }, buyer)).status).toBe(200);
     expect((await post(`/api/leads/${id}/bids`, pitch, bidderB)).status).toBe(409);
     expect((await request(publicPath)).status).toBe(200);
   });
@@ -183,7 +183,7 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
     expect((await review(own.id, 1, "publish", reviewer)).status).toBe(403);
     await expectHidden(own.id, "Reviewer authored lead");
     const withdrawn = await createLead(`Withdrawn private lead ${variant()}`, buyer);
-    expect((await patch(`/api/leads/${withdrawn.id}/status`, { status: "closed" }, buyer)).status).toBe(200);
+    expect((await patch(`/api/leads/${withdrawn.id}/status`, { action: "withdraw" }, buyer)).status).toBe(200);
     expect((await review(withdrawn.id, 1, "publish", reviewer)).status).toBe(409);
     expect((await post("/api/leads", brief(`Third lead while rate limited ${variant()}`), buyer)).headers.get("retry-after")).toBe("900");
     const decline = await createLead(`Declined private lead ${variant()}`, bidderA);

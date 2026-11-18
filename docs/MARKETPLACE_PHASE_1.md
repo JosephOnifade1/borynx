@@ -5,7 +5,7 @@ This is a development workflow, not a live signup or publishing rollout. Run `np
 1. As a signed-out guest, open `/l/new` and fill in a brief, budget and at least one skill. **Continue to sign in** keeps the draft in the same browser tab; no lead is written yet. Choose **Demo Buyer**, return to the form, then **Submit for review**. The brief is private and listed under **Your submissions** on `/l/new`.
 2. In a separate browser session, choose **Demo Reviewer** and open `/mod/queue`. **Lead submissions** is separate from **Reports**. Choose **Review brief**, then publish, request changes, or reject. Changes and rejection require a note to the buyer. A site reviewer cannot review their own lead; a space moderator cannot publish it.
 3. If changes are requested, return to the buyer session, open the private brief, and **Resubmit for review**. Reviewers must open the new revision before deciding. The author can withdraw a brief that is pending or awaiting corrections. Dismissing a report never publishes the brief.
-4. Once published, confirm the lead appears on `/l`, the author's active leads and search. Try bidding as either **Demo Bidder**. Pitches require a public, open listing with a deadline that hasn't passed. Existing award behavior is not changed by this phase.
+4. Once published, confirm the lead appears on `/l`, the author's active leads and search. Try bidding as either **Demo Bidder**. Pitches require a public, open listing with a deadline that hasn't passed. Continue with the [Phase 2 award and completion walkthrough](./MARKETPLACE_PHASE_2.md).
 
 ## Confirmed policy
 

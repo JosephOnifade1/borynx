@@ -1,31 +1,52 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
 import { db } from "@/db";
-import { leads, leadStatusEnum } from "@/db/schema";
-import { handler, oneOf, readJson } from "@/lib/api";
-import { HttpError, isSiteStaff, requireActor } from "@/lib/auth";
+import { leadBids, leads, type Lead } from "@/db/schema";
+import { handler, readJson } from "@/lib/api";
+import { HttpError, requireActor } from "@/lib/auth";
 import { lockLead, parseLeadId, publicLead } from "@/lib/lead-access";
-import { leadBody } from "@/lib/lead-input";
+import { canSelectBid, hasNoAward, matchesLeadAward, parseLeadAction } from "@/lib/lead-engagement";
 
 export const dynamic = "force-dynamic";
+
+function statusResponse(status: Lead["status"], completedAt?: Date | null) {
+  return Response.json({ status, ...(completedAt ? { completedAt: completedAt.toISOString() } : {}) }, {
+    headers: { "Cache-Control": "private, no-store" },
+  });
+}
 
 export const PATCH = handler(async (req, { params }) => {
   const actor = await requireActor();
   const leadId = parseLeadId(params.id);
-  const body = leadBody(await readJson(req));
-  const nextStatus = oneOf(body.status, leadStatusEnum.enumValues, "status");
+  const action = parseLeadAction(await readJson(req));
 
   return db.transaction(async (tx) => {
-    const lead = await lockLead(tx, leadId, and(eq(leads.isRemoved, false), or(publicLead, eq(leads.authorId, actor.id))));
-    const isOwner = lead.authorId === actor.id;
-    if (lead.publicationStatus !== "published") {
-      // An unpublished brief can be withdrawn by its author, never opened to bidding here.
-      if (!isOwner || nextStatus !== "closed" || lead.publicationStatus === "rejected") {
-        throw new HttpError(409, "Unpublished submissions cannot be opened to bids.", "lead_conflict");
+    const lead = await lockLead(tx, leadId, or(publicLead, and(
+      eq(leads.authorId, actor.id), eq(leads.isRemoved, false), ne(leads.publicationStatus, "published"),
+    )));
+    if (lead.authorId !== actor.id) throw new HttpError(403, "Only the lead author can change its outcome", "forbidden");
+    const published = lead.publicationStatus === "published";
+
+    if (action === "withdraw" || action === "close_without_hire") {
+      // Withdrawal is the Phase 1 author action on a private submission, not an award outcome.
+      const eligible = action === "withdraw" ? lead.publicationStatus === "pending_review" || lead.publicationStatus === "changes_requested" : published;
+      if (!eligible || (!canSelectBid(lead) && !(lead.status === "closed" && hasNoAward(lead)))) {
+        throw new HttpError(409, "This lead cannot be closed with that action", "lead_conflict");
       }
-    } else if (!isOwner && !isSiteStaff(actor)) {
-      throw new HttpError(403, "Only the lead creator or staff can change status", "forbidden");
+      if (lead.status !== "closed") await tx.update(leads).set({ status: "closed" }).where(eq(leads.id, leadId));
+      return statusResponse("closed");
     }
-    await tx.update(leads).set({ status: nextStatus }).where(eq(leads.id, leadId));
-    return Response.json({ ok: true, status: nextStatus }, { headers: { "Cache-Control": "private, no-store" } });
+
+    const next = action === "complete" ? "completed" : "cancelled";
+    if (!published || (lead.status !== "awarded" && lead.status !== next) || lead.awardNeedsReview || lead.acceptedBidId === null) {
+      throw new HttpError(409, "Only an awarded lead can be completed or cancelled", "lead_conflict");
+    }
+    const [bid] = await tx.select({ id: leadBids.id, leadId: leadBids.leadId, userId: leadBids.userId, isAccepted: leadBids.isAccepted })
+      .from(leadBids).where(and(eq(leadBids.id, lead.acceptedBidId), eq(leadBids.leadId, leadId))).limit(1).for("update");
+    if (!matchesLeadAward(lead, bid)) throw new HttpError(409, "This lead has no confirmed winning pitch", "lead_conflict");
+    if (lead.status === next) return statusResponse(next, lead.completedAt);
+
+    const completedAt = action === "complete" ? new Date() : null;
+    await tx.update(leads).set({ status: next, completedAt }).where(eq(leads.id, leadId));
+    return statusResponse(next, completedAt);
   });
 });

@@ -48,7 +48,7 @@ export const PATCH = handler(async (req, { params }) => {
         const [r] = await tx.update(comments).set({ isRemoved: true }).where(eq(comments.id, report.targetId)).returning({ authorId: comments.authorId });
         authorId = r?.authorId ?? null;
       } else {
-        const [r] = await tx.update(leads).set({ isRemoved: true, status: "closed" }).where(eq(leads.id, report.targetId)).returning({ authorId: leads.authorId });
+        const [r] = await tx.update(leads).set({ isRemoved: true }).where(eq(leads.id, report.targetId)).returning({ authorId: leads.authorId });
         authorId = r?.authorId ?? null;
       }
       await tx.insert(modActions).values({ moderatorId: actor.id, targetUserId: authorId, action: "remove_content", reason: `Report #${id}: ${report.reason}` });

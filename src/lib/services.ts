@@ -4,6 +4,7 @@ import {
   badges,
   comments,
   karmaEvents,
+  leadBids,
   leads,
   memberships,
   posts,
@@ -83,9 +84,11 @@ export async function assertRateLimit(userId: number, action: RateLimitedAction,
       recent = r.c;
       break;
     }
-    case "bid":
-      recent = 0;
+    case "bid": {
+      const [r] = await exec.select({ c: count() }).from(leadBids).where(and(eq(leadBids.userId, userId), gte(leadBids.createdAt, since)));
+      recent = r.c;
       break;
+    }
   }
   if (recent >= limit.max) {
     throw new HttpError(429, `Slow down — max ${limit.max} ${action}s per ${limit.windowMinutes} minutes.`, "rate_limited", undefined, limit.windowMinutes * 60);

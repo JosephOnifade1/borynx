@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Pool } from "pg";
 import journal from "../drizzle/meta/_journal.json";
 import { LEDGER, migrateDatabase, migrationsFolder } from "../src/db/migrations";
+import type { DemoAccountMode } from "../src/lib/demo-mode";
 import { DEMO_PERSONAS } from "../src/lib/demo-personas";
 import { startLocalNext } from "./local-next";
 import { freeLoopbackPort, LOOPBACK, withLocalPostgres } from "./local-postgres";
@@ -88,7 +89,7 @@ async function checkPhaseZeroUpgrade(url: string, directory: string) {
     const { rows: [updated] } = await pool.query(`select status, publication_status, assigned_user_id, accepted_bid_id, budget_min, budget_max, budget_unit, currency, bid_count, reviewed_by_id
       from leads where id = $1`, [lead.id]);
     assert.deepEqual(updated, {
-      status: "closed", publication_status: "published", assigned_user_id: winner.id, accepted_bid_id: bid.id,
+      status: "awarded", publication_status: "published", assigned_user_id: winner.id, accepted_bid_id: bid.id,
       budget_min: 12, budget_max: 42, budget_unit: null, currency: "EUR", bid_count: 1, reviewed_by_id: null,
     });
     assert.deepEqual((await pool.query("select amount, is_accepted, message from lead_bids where id = $1", [bid.id])).rows[0], {
@@ -96,6 +97,88 @@ async function checkPhaseZeroUpgrade(url: string, directory: string) {
     });
   });
   console.log("PASS upgrade from Phase 0 (0004) preserves an existing award and budget without inventing review evidence");
+}
+
+async function checkLegacyBids(url: string, directory: string) {
+  const { folder, count } = await copyJournalPrefix(directory, "phase-one-migrations", 6);
+  await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, folder), { applied: count, available: count });
+    const { rows: [buyer, winner, other] } = await pool.query(`insert into users (username, display_name) values
+      ('old-buyer', 'Old Buyer'), ('old-winner', 'Old Winner'), ('old-other', 'Old Other') returning id`);
+    const createLead = async (slug: string, status: string) => (await pool.query<{ id: number }>(`insert into leads
+      (author_id, slug, title, description, category, status, publication_status, budget_min, budget_max, bid_count)
+      values ($1, $2, $2, 'Original scope stays intact', 'Software Engineering', $3, 'published', 15, 80, 99) returning id`, [buyer.id, slug, status])).rows[0].id;
+    const createBid = async (leadId: number, userId: number, message: string, accepted: boolean) => (await pool.query<{ id: number }>(`insert into lead_bids
+      (lead_id, user_id, amount, message, is_accepted) values ($1, $2, 22, $3, $4) returning id`, [leadId, userId, message, accepted])).rows[0].id;
+    const assign = (leadId: number, bidId: number, userId: number) => pool.query("update leads set accepted_bid_id = $1, assigned_user_id = $2 where id = $3", [bidId, userId, leadId]);
+    const valid = await createLead("old-valid", "closed");
+    const earlier = await createBid(valid, winner.id, "Earlier duplicate, keep privately", false);
+    const picked = await createBid(valid, winner.id, "Canonical pitch", false);
+    const stray = await createBid(valid, other.id, "Wrong accepted marker", true);
+    await assign(valid, picked, winner.id);
+    await pool.query("update leads set budget_unit = 'hourly', currency = 'GBP' where id = $1", [valid]);
+    const ordinary = await createLead("old-unawarded", "closed");
+    const first = await createBid(ordinary, other.id, "First unawarded pitch", false);
+    const later = await createBid(ordinary, other.id, "Later duplicate, keep privately", false);
+    const wrongLead = await createLead("old-cross-lead", "closed");
+    await assign(wrongLead, picked, winner.id);
+    const mismatch = await createLead("old-user-mismatch", "closed");
+    const mismatchedBid = await createBid(mismatch, winner.id, "Preserve the disputed award evidence", true);
+    await assign(mismatch, mismatchedBid, other.id);
+    const reopened = await createLead("old-reopened", "open");
+    const reopenedBid = await createBid(reopened, winner.id, "Previously selected on reopened listing", true);
+    await assign(reopened, reopenedBid, winner.id);
+    const reviewing = await createLead("old-in-review", "in_review");
+    const markerOnly = await createLead("old-marker-only", "closed");
+    const markerBid = await createBid(markerOnly, winner.id, "Marker alone does not identify a confirmed award", true);
+    const self = await createLead("old-self-selection", "closed");
+    const selfBid = await createBid(self, buyer.id, "Self-selection is not a credible engagement", true);
+    await assign(self, selfBid, buyer.id);
+
+    const expected = { applied: journal.entries.length, available: journal.entries.length };
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    const upgraded = (await pool.query("select * from leads order by id")).rows;
+    assert.deepEqual(upgraded.map((l) => [l.id, l.status, l.award_needs_review, l.bid_count]), [
+      [valid, "awarded", false, 2], [ordinary, "closed", false, 1], [wrongLead, "closed", true, 0],
+      [mismatch, "closed", true, 1], [reopened, "open", true, 1], [reviewing, "in_review", false, 0],
+      [markerOnly, "closed", true, 1], [self, "closed", true, 1],
+    ]);
+    assert.ok(upgraded.every((l) => l.awarded_at === null && l.completed_at === null && l.budget_min === 15 && l.budget_max === 80 && l.publication_status === "published"));
+    assert.deepEqual(upgraded.map((l) => [l.currency, l.budget_unit]), upgraded.map((l) => l.id === valid ? ["GBP", "hourly"] : ["USD", null]));
+    assert.equal(upgraded.find((l) => l.id === wrongLead)?.accepted_bid_id, picked);
+    assert.equal(upgraded.find((l) => l.id === mismatch)?.assigned_user_id, other.id);
+    assert.deepEqual((await pool.query("select id from lead_bids where is_accepted order by id")).rows, [{ id: picked }]);
+    assert.deepEqual((await pool.query("select id from lead_bids where lead_id = $1", [ordinary])).rows, [{ id: first }]);
+    const archive = (await pool.query("select bid_id, amount, message, was_accepted, reason from lead_bid_archive order by bid_id")).rows;
+    assert.deepEqual(archive.map((b) => [b.bid_id, b.was_accepted, b.reason]), [
+      [earlier, false, "duplicate"], [stray, true, "legacy_acceptance"], [later, false, "duplicate"],
+      [mismatchedBid, true, "legacy_acceptance"], [reopenedBid, true, "legacy_acceptance"],
+      [markerBid, true, "legacy_acceptance"], [selfBid, true, "legacy_acceptance"],
+    ]);
+    assert.equal(archive[0].message, "Earlier duplicate, keep privately");
+    assert.ok(archive.every((b) => b.amount === 22));
+    assert.equal((await pool.query("select relrowsecurity from pg_class where oid = 'lead_bid_archive'::regclass")).rows[0].relrowsecurity, true);
+    assert.equal((await pool.query("select count(*)::int as n from notifications")).rows[0].n, 0);
+    assert.equal((await pool.query("select count(*)::int as n from karma_events")).rows[0].n, 0);
+    await assert.rejects(createBid(valid, winner.id, "Disallowed duplicate", false), { code: "23505", constraint: "lead_bids_lead_user_idx" });
+    await assert.rejects(pool.query("update lead_bids set is_accepted = true where id = $1", [stray]), { code: "23505", constraint: "lead_bids_one_winner_idx" });
+  });
+  console.log("PASS upgrade from Phase 1 (0005) archives duplicate bids and conflicting acceptance markers, classifies only consistent awards, and enforces both bid constraints");
+}
+
+async function checkMigrationFileBoundary(url: string, directory: string) {
+  const { folder } = await copyJournalPrefix(directory, "failing-migration", journal.entries.length);
+  const last = journal.entries[journal.entries.length - 1];
+  await writeFile(join(folder, `${last.tag}.sql`), "create table public.rollback_probe (id int);--> statement-breakpoint\nselect 1 / 0;\n");
+  await usingDatabase(url, async (pool) => {
+    await assert.rejects(migrateDatabase(pool, folder), { code: "22012" });
+    assert.equal((await pool.query("select to_regclass('public.rollback_probe') as probe")).rows[0].probe, null);
+    assert.equal((await pool.query(`select count(*)::int as n from ${LEDGER}`)).rows[0].n, journal.entries.length - 1);
+    assert.equal((await pool.query("select 'awarded'::lead_status as status")).rows[0].status, "awarded");
+    assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+  });
+  console.log("PASS each file and ledger row commit together; failed backfill rolls back and resumes from the verified prefix");
 }
 
 async function checkUntrackedSchema(url: string) {
@@ -109,7 +192,7 @@ async function checkUntrackedSchema(url: string) {
   console.log("PASS untracked schema is rejected without creating a migration ledger or changing data");
 }
 
-async function withApp<T>(url: string, demo: boolean, run: (origin: string) => Promise<T>, ready = true) {
+async function withApp<T>(url: string, demo: DemoAccountMode, run: (origin: string) => Promise<T>, ready = true) {
   const port = await freeLoopbackPort();
   const origin = `http://${LOOPBACK}:${port}`;
   const app = startLocalNext(url, demo, ["--hostname", LOOPBACK, "--port", String(port)]);
@@ -132,7 +215,7 @@ async function withApp<T>(url: string, demo: boolean, run: (origin: string) => P
 }
 
 async function checkBlockedStartup(url: string) {
-  await withApp(url, false, async (origin) => {
+  await withApp(url, "disabled", async (origin) => {
     const response = await fetch(`${origin}/api/leads`);
     assert.equal(response.status, 503);
     assert.deepEqual(await response.json(), { error: "Database unavailable", code: "db_unavailable" });
@@ -155,9 +238,9 @@ function transports(token: string) {
   ] as const;
 }
 
-async function runMarketplaceAndAuthorTests(origin: string, url: string) {
-  const child = spawn(process.execPath, [join(process.cwd(), "node_modules", "vitest", "vitest.mjs"), "run", "src/lib/__tests__/post-author.integration.test.ts", "src/lib/__tests__/lead-publication.integration.test.ts", "--no-file-parallelism", "--testTimeout", "60000", "--hookTimeout", "30000"], {
-    env: { ...process.env, BORYNX_POST_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_DATABASE_URL: url },
+async function runAppTests(files: string[], env: Record<string, string>) {
+  const child = spawn(process.execPath, [join(process.cwd(), "node_modules", "vitest", "vitest.mjs"), "run", ...files, "--no-file-parallelism", "--testTimeout", "60000", "--hookTimeout", "30000"], {
+    env: { ...process.env, ...env },
     stdio: "inherit",
   });
   const code = await new Promise((resolve, reject) => { child.once("close", resolve); child.once("error", reject); });
@@ -165,7 +248,7 @@ async function runMarketplaceAndAuthorTests(origin: string, url: string) {
 }
 
 async function checkDemoApp(url: string) {
-  return withApp(url, true, async (origin) => {
+  return withApp(url, "personas", async (origin) => {
     await usingDatabase(url, async (pool) => {
       const count = (await pool.query(`select count(*)::int as n from ${LEDGER}`)).rows[0].n;
       assert.equal(count, journal.entries.length);
@@ -193,18 +276,116 @@ async function checkDemoApp(url: string) {
       const { rows } = await pool.query("select 1 from sessions where id = $1", [hash]);
       assert.equal(rows.length, 1);
     });
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "mara_k" })).status, 404, "the disposable preview must not expose other seeded accounts");
     assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "non-demo-account" })).status, 404);
     assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "non-demo-account", create: true })).status, 400);
     assert.equal((await jsonPost(`${origin}/api/leads`, {})).status, 401);
     assert.equal((await jsonPost(`${origin}/api/posts`, {})).status, 401);
     console.log("PASS fresh app boot; five fictional roles, hashed sessions, preview transports, and guest write rejection");
-    await runMarketplaceAndAuthorTests(origin, url);
+    await runAppTests(["src/lib/__tests__/post-author.integration.test.ts", "src/lib/__tests__/lead-publication.integration.test.ts"], {
+      BORYNX_POST_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_DATABASE_URL: url,
+    });
     return reviewerToken;
   });
 }
 
+async function checkRestoredDemoApp(url: string) {
+  type Account = { id: number; username: string; role: string; karma: number };
+  const { original, restored } = await usingDatabase(url, async (pool) => {
+    const { rows: original } = await pool.query<Account>("select id, username, role, karma from users where username in ('mara_k', 'priya.builds') order by id");
+    assert.equal(original.length, 2);
+    await pool.query(`insert into users (username, display_name, is_banned, ban_expires_at) values
+      ('lapsed.local', 'Lapsed Local Suspension', true, now() - interval '1 day'),
+      ('restricted.local', 'Active Local Suspension', true, now() + interval '1 day')`);
+    const { rows: [restored] } = await pool.query<Account>(`insert into users (username, display_name, karma)
+      values ('restored.local', 'Restored Local Account', 123) returning id, username, role, karma`);
+    return { original, restored };
+  });
+
+  const savedToken = await withApp(url, "existing", async (origin) => {
+    const page = await fetch(`${origin}/login`).then((r) => r.text());
+    assert.match(page, /Existing local accounts/);
+    for (const account of original) assert.ok(page.includes(`f/${account.username}<`), `${account.username} is in the local picker`);
+    // The picker is bounded; a valid account outside it can still be typed.
+    assert.ok(!page.includes("Restored Local Account"), "the local picker is limited to 15 rows");
+    assert.equal((await fetch(`${origin}/login?next=${encodeURIComponent("/\n/[invalid")}`)).status, 200);
+    const tokens = new Map<string, string>();
+    for (const account of [...original, restored]) {
+      const login = await jsonPost(`${origin}/api/auth/login`, { username: `  F/${account.username.toUpperCase()}  ` }, { Origin: origin });
+      assert.equal(login.status, 200, account.username);
+      assert.match(login.headers.get("set-cookie") ?? "", /HttpOnly/);
+      const { user, token } = await login.json();
+      assert.deepEqual(user, { id: account.id, username: account.username });
+      for (const { label, headers } of transports(token)) {
+        const session = await fetch(`${origin}/api/me`, { headers }).then((r) => r.json());
+        assert.equal(session.transport, label);
+        assert.equal(session.user.id, account.id);
+        assert.equal(session.user.role, account.role);
+        assert.equal(session.user.karma, account.karma);
+      }
+      tokens.set(account.username, token);
+    }
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "f/" })).status, 400);
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "name\0" })).status, 400);
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: restored.username, create: true })).status, 400);
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "not-an-existing-user" })).status, 404);
+    for (const username of ["spamlord99", "restricted.local"]) {
+      const denied = await jsonPost(`${origin}/api/auth/login`, { username });
+      assert.equal(denied.status, 403);
+      assert.equal(denied.headers.get("set-cookie"), null);
+    }
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "lapsed.local" })).status, 200);
+
+    const token = tokens.get(restored.username)!;
+    const cookie = { Cookie: `bx_session=${token}` };
+    const draft = await jsonPost(`${origin}/api/leads`, {
+      title: "Restored account checkout audit", description: "Check keyboard focus order and write a prioritized list of fixes for the checkout flow.", category: "Web & Mobile",
+      kind: "contract", currency: "USD", budgetUnit: "fixed", budgetMin: 80, budgetMax: 120, skillTags: ["accessibility"], submissionKey: randomUUID(),
+    }, cookie);
+    assert.equal(draft.status, 201);
+    const { id, href } = await draft.json();
+    await usingDatabase(url, async (pool) => {
+      assert.deepEqual((await pool.query("select author_id, publication_status from leads where id = $1", [id])).rows, [{ author_id: restored.id, publication_status: "pending_review" }]);
+    });
+    assert.equal((await fetch(`${origin}${href}`)).status, 404);
+    assert.match(await fetch(`${origin}${href}`, { headers: cookie }).then((r) => r.text()), /Restored account checkout audit/);
+
+    const previewHeaders = { "x-forwarded-host": "3000-preview.e2b.app" };
+    const previewPage = await fetch(`${origin}/login`, { headers: previewHeaders }).then((r) => r.text());
+    assert.match(previewPage, /Sign-in is unavailable/);
+    assert.doesNotMatch(previewPage, /Existing local accounts|Seeded personas/);
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: restored.username }, previewHeaders)).status, 404);
+    assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: restored.username }, { Origin: "https://elsewhere.example" })).status, 404);
+    for (const { headers } of transports(token)) {
+      assert.deepEqual(await fetch(`${origin}/api/me`, { headers: { ...headers, ...previewHeaders } }).then((r) => r.json()), { user: null, transport: "none" });
+    }
+
+    const admin = original.find((account) => account.role === "admin")!;
+    const adminHeaders = { "x-bx-session": tokens.get(admin.username)! };
+    await usingDatabase(url, (pool) => pool.query("update users set is_banned = true where id = $1", [admin.id]));
+    try {
+      const discipline = await fetch(`${origin}/api/mod/users/${restored.id}`, {
+        method: "PATCH", headers: { ...adminHeaders, "Content-Type": "application/json" }, body: JSON.stringify({ action: "warn" }),
+      });
+      assert.equal(discipline.status, 403, "an already signed-in suspended admin must not be able to moderate");
+    } finally {
+      await usingDatabase(url, (pool) => pool.query("update users set is_banned = false where id = $1", [admin.id]));
+    }
+    assert.equal((await jsonPost(`${origin}/api/auth/logout`, {}, adminHeaders)).status, 200);
+    assert.deepEqual(await fetch(`${origin}/api/me`, { headers: adminHeaders }).then((r) => r.json()), { user: null, transport: "none" });
+    return token;
+  });
+
+  await withApp(url, "personas", async (origin) => {
+    for (const { headers } of transports(savedToken)) {
+      assert.deepEqual(await fetch(`${origin}/api/me`, { headers }).then((r) => r.json()), { user: null, transport: "none" });
+    }
+  });
+  console.log("PASS local existing accounts keep IDs and roles, sign in with all demo transports, and can draft a lead; rejects restricted accounts and rejects restored tokens in the preview");
+}
+
 async function checkDisabledApp(url: string, oldDemoToken: string) {
-  await withApp(url, false, async (origin) => {
+  await withApp(url, "disabled", async (origin) => {
     await usingDatabase(url, async (pool) => {
       const { rows: [state] } = await pool.query("select (select count(*)::int from users) as users, (select count(*)::int from posts) as posts, (select count(*)::int from leads) as leads, (select count(*)::int from badges) as badges");
       assert.equal(state.users, 0);
@@ -237,9 +418,17 @@ for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete pro
 withLocalPostgres(async ({ createDatabase, directory }) => {
   await checkMigrationUpgrade(await createDatabase("borynx_demo_upgrade"), directory);
   await checkPhaseZeroUpgrade(await createDatabase("borynx_demo_phase0_upgrade"), directory);
+  await checkLegacyBids(await createDatabase("borynx_demo_phase1_upgrade"), directory);
+  await checkMigrationFileBoundary(await createDatabase("borynx_demo_resume"), directory);
   const untrackedUrl = await createDatabase("borynx_demo_untracked");
   await checkUntrackedSchema(untrackedUrl);
   await checkBlockedStartup(untrackedUrl);
-  const oldDemoToken = await checkDemoApp(await createDatabase("borynx_demo"));
+  const demoUrl = await createDatabase("borynx_demo");
+  const oldDemoToken = await checkDemoApp(demoUrl);
+  await checkRestoredDemoApp(demoUrl);
   await checkDisabledApp(await createDatabase("borynx_disabled"), oldDemoToken);
+  const engagementUrl = await createDatabase("borynx_demo_engagement");
+  await withApp(engagementUrl, "personas", (origin) => runAppTests(["src/lib/__tests__/lead-engagement.integration.test.ts"], {
+    BORYNX_ENGAGEMENT_TEST_ORIGIN: origin, BORYNX_ENGAGEMENT_TEST_DATABASE_URL: engagementUrl,
+  }));
 }).catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1,13 +1,21 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import type { DemoAccountMode } from "../src/lib/demo-mode";
 
-export function startLocalNext(databaseUrl: string, demo: boolean, args: string[], inheritLogs = false) {
+export function startLocalNext(databaseUrl: string, demo: DemoAccountMode, args: string[], inheritLogs = false) {
   const env = { ...process.env };
   // Do not inherit alternate connection settings (including SSL/options) from a user shell.
   for (const key of Object.keys(env)) if (key.startsWith("PG")) delete env[key];
   const child = spawn(process.execPath, [join(process.cwd(), "node_modules", "next", "dist", "bin", "next"), "dev", ...args], {
-    env: { ...env, DATABASE_URL: databaseUrl, BORYNX_DEMO_MODE: demo ? "1" : "0", NODE_ENV: "development", NEXT_TELEMETRY_DISABLED: "1" },
+    env: {
+      ...env,
+      DATABASE_URL: databaseUrl,
+      BORYNX_DEMO_MODE: demo === "disabled" ? "0" : "1",
+      BORYNX_DEMO_EXISTING_ACCOUNTS: demo === "existing" ? "1" : "0",
+      NODE_ENV: "development",
+      NEXT_TELEMETRY_DISABLED: "1",
+    },
     stdio: inheritLogs ? "inherit" : ["ignore", "pipe", "pipe"],
   });
   let logs = "";

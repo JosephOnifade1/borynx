@@ -44,42 +44,6 @@ export function JoinButton({ slug, joined: initial, privacy, isOwner }: { slug: 
   );
 }
 
-/* ---------------- Bid ---------------- */
-
-export function BidForm({ leadId, disabledReason }: { leadId: number; disabledReason: string | null }) {
-  const notify = useNotify();
-  const router = useRouter();
-  const [message, setMessage] = useState("");
-  const [amount, setAmount] = useState("");
-  const m = useMutation({
-    mutationFn: () => api<{ id: number }>(`/api/leads/${leadId}/bids`, { method: "POST", json: { message, amount: Number(amount) } }),
-    onSuccess: () => {
-      notify("Bid submitted", "success");
-      setMessage("");
-      router.refresh();
-    },
-    onError: (e) => notify(e instanceof ClientError ? e.message : "Bid failed", "error"),
-  });
-  if (disabledReason) return <p className="rounded-md border border-dashed border-line-strong px-4 py-3 text-[13px] text-ink-2">{disabledReason}</p>;
-  return (
-    <form
-      className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        m.mutate();
-      }}
-    >
-      <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} className="field" placeholder="Your pitch: relevant work, approach, timeline. Minimum 20 characters." minLength={20} required />
-      <div className="flex items-center gap-3">
-        <input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="field num w-40" placeholder="Your quote" />
-        <button type="submit" className="btn btn-primary ml-auto" disabled={m.isPending}>
-          {m.isPending ? "Submitting…" : "Submit bid"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
 /* ---------------- Login ---------------- */
 
 interface Persona {
@@ -89,73 +53,80 @@ interface Persona {
   avatarHue: number;
   role: string;
   isVerified: boolean;
-  isBanned: boolean;
+  restricted: boolean;
 }
 
-export function LoginForm({ personas, destination }: { personas: Persona[]; destination: string }) {
+export function LoginForm({ personas, destination, existing }: { personas: Persona[]; destination: string; existing: boolean }) {
   const router = useRouter();
   const notify = useNotify();
   const [username, setUsername] = useState("");
-  const [cookieBlocked, setCookieBlocked] = useState(false);
+  const [sessionUnconfirmed, setSessionUnconfirmed] = useState(false);
   const m = useMutation({
+    onMutate: () => setSessionUnconfirmed(false),
     mutationFn: async (username: string): Promise<"cookie" | "header" | "memory" | "blocked"> => {
       clearStoredToken();
-      const res = await api<{ ok: true; token: string }>("/api/auth/login", { method: "POST", json: { username } });
+      const res = await api<{ ok: true; user: { id: number }; token: string }>("/api/auth/login", { method: "POST", json: { username } });
       // Tier 1 — did the browser keep the session cookie? (no token stored yet → cookie-only probe)
       const viaCookie = await api<{ user: { id: number } | null }>("/api/me", { cache: "no-store" });
-      if (viaCookie.user) return "cookie";
+      if (viaCookie.user?.id === res.user.id) return "cookie";
       // Tier 2 — cookie dropped (embedded preview). Carry the token in the x-bx-session header.
       const where = storeToken(res.token);
       const viaHeader = await api<{ user: { id: number } | null }>("/api/me", { cache: "no-store" });
-      if (viaHeader.user) return where === "memory" ? "memory" : "header";
+      if (viaHeader.user?.id === res.user.id) return where === "memory" ? "memory" : "header";
       clearStoredToken();
       return "blocked";
     },
     onSuccess: (mode) => {
       if (mode === "blocked") {
-        setCookieBlocked(true);
-        notify("Your browser blocked the session in this embedded view — open Borynx in a new tab.", "error");
+        setSessionUnconfirmed(true);
         return;
       }
       if (mode === "memory") notify("Signed in for this tab — your browser blocks storage in embedded previews, so a reload signs you out.", "info");
       router.push(destination);
       router.refresh();
     },
-    onError: (e) => notify(e instanceof ClientError ? e.message : "Sign-in failed", "error"),
+    onError: (e) => {
+      clearStoredToken();
+      notify(e instanceof ClientError ? e.message : "Sign-in failed", "error");
+    },
   });
   return (
     <div className="grid gap-6 px-5 py-6 sm:px-8 lg:grid-cols-[1fr_320px]">
-      {cookieBlocked && (
+      {sessionUnconfirmed && (
         <div role="alert" className="rounded-md border border-danger/50 bg-danger-soft/40 p-4 text-[13px] lg:col-span-2">
-          <p className="font-semibold text-danger">Session cookie blocked</p>
-          <p className="mt-1 text-ink-2">This page is running inside an embedded preview frame and your browser refused to store the login cookie there. Open the app in its own tab and sign in again — everything else works identically.</p>
+          <p className="font-semibold text-danger">Couldn’t confirm the new session</p>
+          <p className="mt-1 text-ink-2">Reload and try signing in again. If you’re in an embedded preview, open the app in its own tab first.</p>
           <button type="button" className="btn btn-primary mt-3" onClick={() => window.open(window.location.href, "_blank", "noopener")}>
             Open Borynx in a new tab
           </button>
         </div>
       )}
       <div>
-        <p className="eyebrow">Seeded personas</p>
-        <p className="mt-1 text-[13px] text-ink-2">Try the buyer, either bidder, the reviewer, or an unrelated observer.</p>
-        <ul className="mt-4 divide-y divide-line rounded-md border border-line">
-          {personas.map((p) => (
-            <li key={p.username}>
-              <button type="button" onClick={() => m.mutate(p.username)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-sunken" disabled={m.isPending}>
-                <Avatar hue={p.avatarHue} name={p.displayName} size={32} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 text-[13.5px] font-semibold">
-                    {p.displayName}
-                    {p.isVerified && <VerifiedMark size={12} />}
-                    <span className="num text-[11px] font-normal text-ink-3">f/{p.username}</span>
+        <p className="eyebrow">{existing ? "Existing local accounts" : "Seeded personas"}</p>
+        <p className="mt-1 text-[13px] text-ink-2">{existing
+          ? "Pick an account below or enter its handle. This is only for your isolated demo database."
+          : "Try the buyer, either bidder, the reviewer, or an unrelated observer."}</p>
+        {personas.length === 0 ? <p className="mt-4 text-[13px] text-ink-3">No demo accounts are listed.</p> : (
+          <ul className="mt-4 divide-y divide-line rounded-md border border-line">
+            {personas.map((p) => (
+              <li key={p.username}>
+                <button type="button" onClick={() => m.mutate(p.username)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-60" disabled={m.isPending || p.restricted}>
+                  <Avatar hue={p.avatarHue} name={p.displayName} size={32} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13.5px] font-semibold">
+                      {p.displayName}
+                      {p.isVerified && <VerifiedMark size={12} />}
+                      <span className="num min-w-0 break-all text-[11px] font-normal text-ink-3">{`f/${p.username}`}</span>
+                    </span>
+                    <span className="block truncate text-[12px] text-ink-3">{p.headline}</span>
                   </span>
-                  <span className="block truncate text-[12px] text-ink-3">{p.headline}</span>
-                </span>
-                <span className={cn("tag", p.isBanned ? "tag-danger" : p.role === "admin" ? "tag-ember" : p.role === "moderator" ? "tag-gold" : "")}>{p.isBanned ? "banned" : p.role}</span>
-                <LogIn size={14} className="text-ink-3" />
-              </button>
-            </li>
-          ))}
-        </ul>
+                  <span className={cn("tag", p.restricted ? "tag-danger" : p.role === "admin" ? "tag-ember" : p.role === "moderator" ? "tag-gold" : "")}>{p.restricted ? "restricted" : p.role}</span>
+                  <LogIn size={14} className="text-ink-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <form
         className="panel-raised h-fit rounded-lg p-5"
@@ -168,13 +139,16 @@ export function LoginForm({ personas, destination }: { personas: Persona[]; dest
           <span className="eyebrow">Handle</span>
           <div className="relative mt-1.5">
             <span className="num pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3">f/</span>
-            <input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} className="field pl-8" placeholder="demo-buyer" pattern="[a-z0-9][a-z0-9_.\-]{1,31}" required />
+            <input value={username} onChange={(e) => setUsername(e.target.value)} className="field pl-8" placeholder={existing ? "your-handle" : "demo-buyer"}
+              maxLength={34} autoComplete="username" autoCapitalize="none" spellCheck={false} required />
           </div>
         </label>
         <button type="submit" className="btn btn-primary mt-4 w-full justify-center" disabled={m.isPending}>
           <LogIn size={14} /> {m.isPending ? "Signing in…" : "Sign in"}
         </button>
-        <p className="mt-3 text-[11px] text-ink-3">Only the fictional accounts listed here can sign in in demo mode.</p>
+        <p className="mt-3 text-[11px] text-ink-3">{existing
+          ? "Enter the exact handle of an existing test account. No account is created here."
+          : "Only the five fictional demo personas can sign in in this mode."}</p>
       </form>
     </div>
   );

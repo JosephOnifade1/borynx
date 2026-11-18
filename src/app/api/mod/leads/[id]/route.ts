@@ -4,6 +4,7 @@ import { leads, spaces, type Lead } from "@/db/schema";
 import { handler, readJson } from "@/lib/api";
 import { HttpError, isSiteStaff, requireActor } from "@/lib/auth";
 import { lockLead, parseLeadId } from "@/lib/lead-access";
+import { canSelectBid } from "@/lib/lead-engagement";
 import { leadBody, parseLeadRevision } from "@/lib/lead-input";
 import { submissionResponse } from "@/lib/lead-submissions";
 import { createNotification } from "@/lib/notifications";
@@ -36,7 +37,7 @@ export const PATCH = handler(async (req, { params }) => {
   return db.transaction(async (tx) => {
     const lead = await lockLead(tx, id);
     if (lead.authorId === actor.id) throw new HttpError(403, "You can't review your own lead", "forbidden");
-    if (lead.isRemoved || lead.status === "closed" || lead.publicationStatus !== "pending_review" || lead.revision !== revision) {
+    if (lead.isRemoved || !canSelectBid(lead) || lead.publicationStatus !== "pending_review" || lead.revision !== revision) {
       throw new HttpError(409, "This revision is no longer pending review. Reload before deciding.", "lead_conflict");
     }
     if (action === "publish" && lead.spaceId !== null) {

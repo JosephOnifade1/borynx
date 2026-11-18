@@ -11,7 +11,7 @@ withLocalPostgres(async ({ createDatabase }) => {
   if (!args.some((arg) => arg === "--hostname" || arg === "-H" || arg.startsWith("--hostname=") || arg.startsWith("-H="))) {
     args.unshift("--hostname", LOOPBACK);
   }
-  const app = startLocalNext(url, true, args, true);
+  const app = startLocalNext(url, "personas", args, true);
   const stop = () => { void app.stop(); };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);

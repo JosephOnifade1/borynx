@@ -1,6 +1,6 @@
 # Borynx: phase-by-phase marketplace implementation plan
 
-**Status: Phase 0 merged; Phase 1 implemented for development.** See the [local database runbook](./LOCAL_DATABASE.md) and [Phase 1 walkthrough](./MARKETPLACE_PHASE_1.md). Phases 2–6 remain proposals. The audit below describes the original checkout at `11e1195`.
+**Status: Phases 0–1 merged; Phase 2 implemented for development.** See the [local database runbook](./LOCAL_DATABASE.md), [Phase 1 walkthrough](./MARKETPLACE_PHASE_1.md), and [Phase 2 walkthrough](./MARKETPLACE_PHASE_2.md). Phases 3–6 remain proposals. The audit below describes the original checkout at `11e1195`.
 
 ## What the repository already gives us
 
@@ -73,9 +73,9 @@ Baseline from the repository audit: plain `npm ci` failed; a legacy-peer install
 
 | Existing route to change | Request → response |
 |---|---|
-| `POST /api/leads/[id]/bids` | `{ amount, message }` → `201 { id }`. Positive whole quote in the lead currency/unit; 20–4,000 char pitch; deny own-lead, duplicate, removed, pending, or expired submissions. Fix `src/lib/services.ts`'s bid rate counter and call it. |
+| `POST /api/leads/[id]/bids` | `{ amount, message }` → `201 { id }`. Positive whole quote in the lead currency/unit; 20–4,000 char pitch; deny own-lead, duplicate, removed, pending, or expired submissions. Count successful pitches per bidder across leads; six per ten minutes, otherwise `429` with `Retry-After`. |
 | `POST /api/leads/[id]/bids/[bidId]/accept` | No body → `200 { acceptedBidId, assignedUserId, status }`. Same award retry is a no-op; different second winner → `409`. Only the non-suspended poster can award; the bid must belong to the lead. The bid deadline stops new bids, not selection from valid existing bids. |
-| `PATCH /api/leads/[id]/status` | `{ action: "close_without_hire" | "complete" | "cancel" }` → `200 { status, completedAt? }`. Validate current state and owner in the transaction; reject normal reopening, reassignment, and completion without an award. |
+| `PATCH /api/leads/[id]/status` | `{ action: "close_without_hire" | "complete" | "cancel" }` → `200 { status, completedAt? }`. Validate current state and owner in the transaction; reject reopening, reassignment, and completion without an award. `{ action: "withdraw" }` retains the Phase 1 pre-publication author action. |
 
 **UI.** Update [`LeadPosterControls`](../src/components/leads/LeadPosterControls.tsx), `BidForm`, lead detail and `LeadFeed` cards. Show the quote unit, distinct **Awarded**, **Completed**, **Closed without hire**, and **Cancelled** labels, and explicit owner actions instead of a free status dropdown. Use the existing inbox for new pitch/award notices and `tag-success` for completed, not for an unverified payment.
 
