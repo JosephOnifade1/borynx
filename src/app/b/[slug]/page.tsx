@@ -38,7 +38,7 @@ export default async function SpacePage({ params, searchParams }: { params: Prom
       ),
     user ? db.select().from(memberships).where(and(eq(memberships.userId, user.id), eq(memberships.spaceId, space.id))).limit(1) : Promise.resolve([]),
     user ? canModerateSpace(user, space.id) : Promise.resolve(false),
-    listPosts({ mode, spaceId: space.id, viewerId: user?.id ?? null }),
+    listPosts({ mode, spaceId: space.id, viewer: user }),
   ]);
   const joined = membership.length > 0;
   const isOwner = membership[0]?.modRole === "owner";

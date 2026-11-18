@@ -8,7 +8,6 @@ import {
   memberships,
   posts,
   reports,
-  spaces,
   userBadges,
   users,
   votes,
@@ -29,6 +28,7 @@ import {
 } from "./karma";
 import { evaluateContent, RATE_LIMITS, type RateLimitedAction } from "./safety";
 import { createNotification } from "./notifications";
+import { activePost, lockOpenPost } from "./post-access";
 import { routes } from "./utils";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -136,6 +136,13 @@ export interface VoteResult {
 
 export async function castVote(user: User, targetType: VoteTarget, targetId: number, value: 1 | -1 | 0): Promise<VoteResult> {
   return db.transaction(async (tx) => {
+    if (targetType === "post") await lockOpenPost(tx, targetId, user);
+    if (targetType === "comment") {
+      const [comment] = await tx.select({ postId: comments.postId }).from(comments)
+        .where(and(eq(comments.id, targetId), eq(comments.isRemoved, false))).limit(1);
+      if (!comment) throw new HttpError(404, "Comment not found");
+      await lockOpenPost(tx, comment.postId, user);
+    }
     const [existing] = await tx
       .select()
       .from(votes)
@@ -218,16 +225,11 @@ async function readTallies(exec: Executor, targetType: VoteTarget, targetId: num
 
 export async function markSolution(commentId: number, actor: User): Promise<{ isSolution: boolean }> {
   return db.transaction(async (tx) => {
-    const [comment] = await tx.select().from(comments).where(eq(comments.id, commentId)).limit(1);
+    const [target] = await tx.select({ postId: comments.postId }).from(comments).where(eq(comments.id, commentId)).limit(1);
+    if (!target) throw new HttpError(404, "Comment not found");
+    const { post, spaceSlug } = await lockOpenPost(tx, target.postId, actor);
+    const [comment] = await tx.select().from(comments).where(and(eq(comments.id, commentId), eq(comments.isRemoved, false))).limit(1);
     if (!comment) throw new HttpError(404, "Comment not found");
-    const [postRow] = await tx
-      .select({ post: posts, spaceSlug: spaces.slug })
-      .from(posts)
-      .innerJoin(spaces, eq(spaces.id, posts.spaceId))
-      .where(eq(posts.id, comment.postId))
-      .limit(1);
-    if (!postRow) throw new HttpError(404, "Post not found");
-    const { post, spaceSlug } = postRow;
     const staff = actor.role === "admin" || actor.role === "moderator";
     if (post.authorId !== actor.id && !staff) throw new HttpError(403, "Only the thread author can accept a solution");
 
@@ -274,11 +276,11 @@ export async function markSolution(commentId: number, actor: User): Promise<{ is
 
 export async function loadBadgeStats(userId: number, exec: Executor = db): Promise<BadgeStats> {
   const [user] = await exec.select({ karma: users.karma, isVerified: users.isVerified }).from(users).where(eq(users.id, userId)).limit(1);
-  const [p] = await exec.select({ c: count() }).from(posts).where(and(eq(posts.authorId, userId), eq(posts.isRemoved, false)));
+  const [p] = await exec.select({ c: count() }).from(posts).where(and(eq(posts.authorId, userId), activePost));
   const [ep] = await exec
     .select({ c: count() })
     .from(posts)
-    .where(and(eq(posts.authorId, userId), eq(posts.isRemoved, false), sql`${posts.upvotes} - ${posts.downvotes} >= 5`));
+    .where(and(eq(posts.authorId, userId), activePost, sql`${posts.upvotes} - ${posts.downvotes} >= 5`));
   const [s] = await exec.select({ c: count() }).from(comments).where(and(eq(comments.authorId, userId), eq(comments.isSolution, true)));
   const [c] = await exec.select({ c: count() }).from(comments).where(and(eq(comments.authorId, userId), eq(comments.isRemoved, false)));
   const [l] = await exec.select({ c: count() }).from(leads).where(and(eq(leads.authorId, userId), eq(leads.isRemoved, false)));

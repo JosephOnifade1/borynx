@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { comments, leads, modActions, posts, reports } from "@/db/schema";
 import { handler, num, oneOf, readJson } from "@/lib/api";
@@ -20,6 +20,10 @@ export const PATCH = handler(async (req: NextRequest, { params }) => {
   if (!allowed) throw new HttpError(403, "You don't moderate this space", "forbidden");
 
   await db.transaction(async (tx) => {
+    // Match the author actions' lock order: post first, then its report rows.
+    if (decision === "approve" && report.targetType === "post") {
+      await tx.select({ id: posts.id }).from(posts).where(eq(posts.id, report.targetId)).for("update");
+    }
     const status = decision === "approve" ? "approved" : "dismissed";
     // Resolve every pending report pointing at the same target in one sweep.
     await tx
@@ -39,7 +43,7 @@ export const PATCH = handler(async (req: NextRequest, { params }) => {
         authorId = r?.authorId ?? null;
       }
       await tx.insert(modActions).values({ moderatorId: actor.id, targetUserId: authorId, action: "remove_content", reason: `Report #${id}: ${report.reason}` });
-      const siblings = await tx.select({ id: reports.id }).from(reports).where(eq(reports.targetId, report.targetId));
+      const siblings = await tx.select({ id: reports.id }).from(reports).where(and(eq(reports.targetId, report.targetId), eq(reports.targetType, report.targetType)));
       for (const s of siblings) {
         if (s.id !== id) await tx.update(reports).set({ status: "approved", reviewedById: actor.id, reviewedAt: new Date() }).where(eq(reports.id, s.id));
       }

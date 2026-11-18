@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { comments, leads, posts, reportReasonEnum, reports, reportTargetEnum } from "@/db/schema";
+import { comments, leads, posts, reportReasonEnum, reports, reportTargetEnum, spaces } from "@/db/schema";
 import { handler, oneOf, readJson } from "@/lib/api";
 import { HttpError, requireUser } from "@/lib/auth";
+import { lockOpenPost, postSpaceAccess } from "@/lib/post-access";
 import { assertRateLimit } from "@/lib/services";
 
 export const dynamic = "force-dynamic";
@@ -19,21 +20,25 @@ export const POST = handler(async (req: NextRequest) => {
 
   await assertRateLimit(user.id, "report");
 
-  let spaceId: number | null = null;
-  if (targetType === "post") {
-    const [p] = await db.select({ spaceId: posts.spaceId }).from(posts).where(eq(posts.id, targetId)).limit(1);
-    if (!p) throw new HttpError(404, "Post not found");
-    spaceId = p.spaceId;
-  } else if (targetType === "comment") {
-    const [c] = await db.select({ spaceId: posts.spaceId }).from(comments).innerJoin(posts, eq(posts.id, comments.postId)).where(eq(comments.id, targetId)).limit(1);
-    if (!c) throw new HttpError(404, "Comment not found");
-    spaceId = c.spaceId;
-  } else {
-    const [l] = await db.select({ spaceId: leads.spaceId }).from(leads).where(eq(leads.id, targetId)).limit(1);
-    if (!l) throw new HttpError(404, "Lead not found");
-    spaceId = l.spaceId;
-  }
+  return db.transaction(async (tx) => {
+    let spaceId: number | null = null;
+    if (targetType === "post") {
+      const { post } = await lockOpenPost(tx, targetId, user);
+      spaceId = post.spaceId;
+    } else if (targetType === "comment") {
+      const [c] = await tx.select({ spaceId: posts.spaceId }).from(comments)
+        .innerJoin(posts, eq(posts.id, comments.postId))
+        .innerJoin(spaces, eq(spaces.id, posts.spaceId))
+        .where(and(eq(comments.id, targetId), eq(comments.isRemoved, false), eq(posts.isRemoved, false), postSpaceAccess(user))).limit(1);
+      if (!c) throw new HttpError(404, "Comment not found");
+      spaceId = c.spaceId;
+    } else {
+      const [l] = await tx.select({ spaceId: leads.spaceId }).from(leads).where(eq(leads.id, targetId)).limit(1);
+      if (!l) throw new HttpError(404, "Lead not found");
+      spaceId = l.spaceId;
+    }
 
-  const [created] = await db.insert(reports).values({ reporterId: user.id, targetType, targetId, spaceId, reason, details }).returning({ id: reports.id });
-  return Response.json({ id: created.id }, { status: 201 });
+    const [created] = await tx.insert(reports).values({ reporterId: user.id, targetType, targetId, spaceId, reason, details }).returning({ id: reports.id });
+    return Response.json({ id: created.id }, { status: 201 });
+  });
 });

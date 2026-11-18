@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/db";
-import { comments, follows, leads, posts } from "@/db/schema";
+import { comments, follows, leads, posts, spaces } from "@/db/schema";
 import { FollowButton } from "@/components/FollowButton";
 import { EditProfileModal } from "@/components/profile/EditProfileModal";
 import { PostFeed } from "@/components/feed/PostFeed";
@@ -13,6 +13,7 @@ import { UserDiscipline } from "@/components/mod/ModActions";
 import { PageFrame, Widget } from "@/components/PageFrame";
 import { Avatar, BadgeChip, VerifiedMark } from "@/components/primitives";
 import { getCurrentUser, isSiteStaff } from "@/lib/auth";
+import { activePost, postSpaceAccess } from "@/lib/post-access";
 import { listLeads, listPosts, resolveUser } from "@/lib/queries";
 import { getUserBadges } from "@/lib/services";
 import type { FeedLead, FeedPage, FeedPost } from "@/lib/types";
@@ -57,8 +58,8 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
 
   const [badgeList, [threads], [solvedThreads], [solutions], [openLeads], [followers], isFollowingRow] = await Promise.all([
     getUserBadges(profile.id),
-    db.select({ c: count() }).from(posts).where(and(eq(posts.authorId, profile.id), eq(posts.isRemoved, false))),
-    db.select({ c: count() }).from(posts).where(and(eq(posts.authorId, profile.id), eq(posts.isRemoved, false), eq(posts.isSolved, true))),
+    db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, profile.id), activePost, postSpaceAccess(viewer))),
+    db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, profile.id), activePost, postSpaceAccess(viewer), eq(posts.isSolved, true))),
     db.select({ c: count() }).from(comments).where(and(eq(comments.authorId, profile.id), eq(comments.isSolution, true))),
     db.select({ c: count() }).from(leads).where(and(eq(leads.authorId, profile.id), eq(leads.isRemoved, false), eq(leads.status, "open"))),
     db.select({ c: count() }).from(follows).where(eq(follows.followingId, profile.id)),
@@ -73,7 +74,7 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
 
   const counts: Record<Tab, number> = { posts: threads.c, solved: solvedThreads.c, leads: openLeads.c };
   const leadPage: FeedPage<FeedLead> | null = tab === "leads" ? await listLeads({ mode: "new", authorId: profile.id, viewerId: viewer?.id ?? null }) : null;
-  const postPage: FeedPage<FeedPost> | null = tab !== "leads" ? await listPosts({ mode: "new", authorId: profile.id, solvedOnly: tab === "solved", viewerId: viewer?.id ?? null }) : null;
+  const postPage: FeedPage<FeedPost> | null = tab !== "leads" ? await listPosts({ mode: "new", authorId: profile.id, solvedOnly: tab === "solved", viewer }) : null;
   const hue = profile.avatarHue;
   const base = routes.profile(profile.username);
 

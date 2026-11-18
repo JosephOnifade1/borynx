@@ -44,7 +44,7 @@ export const GET = handler(async (req: NextRequest) => {
     followingUserId,
     solvedOnly: sp.get("solved") === "1",
     cursor,
-    viewerId: viewer?.id ?? null,
+    viewer,
   });
   return Response.json(page);
 });
