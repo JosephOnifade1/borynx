@@ -486,10 +486,37 @@ async function checkPhaseTwoEmailUpgrade(url: string, directory: string) {
   await checkEmailStaging(url, directory);
 }
 
+async function checkPhaseThreeProfileUpgrade(url: string, directory: string) {
+  const phaseThree = await copyJournalPrefix(directory, "phase3-migrations", 9);
+  const buyerId = await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, phaseThree.folder), { applied: 9, available: 9 });
+    const { rows: [buyer] } = await pool.query<{ id: number }>(`insert into users (username, display_name, company_name, role, karma) values
+      ('profile-buyer', 'Profile Buyer', 'Intake Company Must Stay Private', 'member', 47),
+      ('profile-worker', 'Profile Worker', null, 'member', 0),
+      ('profile-reviewer', 'Profile Reviewer', null, 'moderator', 0) returning id`);
+    return buyer.id;
+  });
+  await withApp(url, "npm-default", async (origin) => {
+    await usingDatabase(url, async (pool) => {
+      assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+      const { rows: [buyer] } = await pool.query(`select id, company_name, company_name_public, looking_to_hire, available_for_work, hourly_rate, hourly_currency, karma
+        from users where username = 'profile-buyer'`);
+      assert.deepEqual(buyer, { id: buyerId, company_name: "Intake Company Must Stay Private", company_name_public: false,
+        looking_to_hire: false, available_for_work: false, hourly_rate: null, hourly_currency: null, karma: 47 });
+      await assert.rejects(pool.query("update users set hourly_rate = 30 where id = $1", [buyerId]), { constraint: "users_hourly_rate_pair" });
+    });
+    await runAppTests(["src/lib/__tests__/adaptive-profiles.integration.test.ts"], {
+      BORYNX_PROFILE_TEST_ORIGIN: origin, BORYNX_PROFILE_TEST_DATABASE_URL: url,
+    });
+  });
+  console.log("PASS Phase 3 upgrade keeps the original accounts and private intake name; profile settings run through plain npm run dev");
+}
+
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
   if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   if (process.argv.includes("--local-demo-only")) return checkDefaultDevSignIn(await createDatabase("app_db"));
+  if (process.argv.includes("--profiles-only")) return checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
   await checkMigrationUpgrade(await createDatabase("borynx_demo_upgrade"), directory);
   await checkPhaseZeroUpgrade(await createDatabase("borynx_demo_phase0_upgrade"), directory);
   await checkLegacyBids(await createDatabase("borynx_demo_phase1_upgrade"), directory);
@@ -507,4 +534,5 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
     BORYNX_ENGAGEMENT_TEST_ORIGIN: origin, BORYNX_ENGAGEMENT_TEST_DATABASE_URL: engagementUrl,
   }));
   await checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
+  await checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

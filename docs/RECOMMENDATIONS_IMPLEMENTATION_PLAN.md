@@ -1,6 +1,6 @@
 # Borynx: phase-by-phase marketplace implementation plan
 
-**Status: Phases 0–1 merged; Phase 2 implemented for development.** See the [local database runbook](./LOCAL_DATABASE.md), [Phase 1 walkthrough](./MARKETPLACE_PHASE_1.md), and [Phase 2 walkthrough](./MARKETPLACE_PHASE_2.md). Phases 3–6 remain proposals. The audit below describes the original checkout at `11e1195`.
+**Status: Phases 0–3 implemented for development; Phase 4 profile settings implemented.** See the [local database runbook](./LOCAL_DATABASE.md), [Phase 1 walkthrough](./MARKETPLACE_PHASE_1.md), [Phase 2 walkthrough](./MARKETPLACE_PHASE_2.md), [Phase 3 staging gates](./MARKETPLACE_PHASE_3.md), and [Phase 4 profile walkthrough](./MARKETPLACE_PHASE_4.md). Structured Projects and Phases 5–6 remain follow-ups. The audit below describes the original checkout at `11e1195`.
 
 ## What the repository already gives us
 

@@ -1,6 +1,6 @@
 # Local database and demo sign-in
 
-Phase 0 established the setup and safety checks; this runbook covers the current journal through Phase 3. The checks below use fictional rows in disposable PostgreSQL only.
+Phase 0 established the setup and safety checks; this runbook covers the journal through Phase 4 profile settings (`0009`). The checks below use fictional rows in disposable PostgreSQL only.
 
 ## Quick setup
 
@@ -38,6 +38,7 @@ A fresh database can have an empty ledger. A database with untracked tables/enum
 | `npm run typecheck`, `npm run lint`, `npm run build` | TypeScript, lint, and production compile. The pre-existing lint fixes are isolated in their own commit. |
 | `npx drizzle-kit check` | Checks migration snapshots and journal consistency without applying SQL. |
 | `npm run test:db -- --local-demo-only` | Boots plain `npm run dev` against a temporary database with a pre-existing test account. Checks the picker, original ID and role, cookie and sign-out, and that no fixture users are added. |
-| `npm run test:db` | Runs the local dev regression, the five-persona and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, and `0007`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, and lead-engagement HTTP suites plus email staging with a local HTTPS provider double. |
+| `npm run test:db -- --profiles-only` | Upgrades a disposable `0008` database and exercises adaptive profiles over HTTP, including intake-name privacy and public lead counts. |
+| `npm run test:db` | Runs the local dev regression, five-persona and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, `0007`, and `0008`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, lead-engagement, and adaptive-profile HTTP suites plus email staging with a local HTTPS provider double. |
 
 `test:db` requires `openssl` for the throwaway TLS fixture and does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the HTTP integration cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.

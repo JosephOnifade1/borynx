@@ -31,7 +31,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           // Reset cached private data on account changes. This also lets a demo header session
           // replace an initially signed-out 404 after the client refreshes with credentials.
           <Providers key={user?.id ?? "guest"} user={user ? toPublicUser(user) : null} demoMode={demoMode}>
-            <AppShell user={user}>{children}</AppShell>
+            <AppShell userId={user?.id ?? null}>{children}</AppShell>
           </Providers>
         ) : (
           <DatabaseOffline status={status} showDiagnostics={demoMode} />
