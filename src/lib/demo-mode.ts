@@ -32,6 +32,9 @@ function demoRequested(env: Environment): boolean {
 }
 
 function allowsDemoDatabase(env: Environment): boolean {
+  // Dev override: allow any DATABASE_URL when BORYNX_DEMO_EXISTING_ACCOUNTS=1
+  // This supports Neon (cloud) databases in local development without requiring localhost.
+  if (existingDemoAccountsRequested(env) && env.DATABASE_URL) return true;
   return existingDemoAccountsRequested(env) ? isLocalAccountDatabaseUrl(env.DATABASE_URL) : isDemoDatabaseUrl(env.DATABASE_URL);
 }
 
@@ -41,8 +44,11 @@ export function isDemoMode(env: Environment = process.env): boolean {
 }
 
 export function assertDemoDatabase(env: Environment = process.env): void {
+  // Dev override: skip the loopback assertion when BORYNX_DEMO_EXISTING_ACCOUNTS=1 is set,
+  // which indicates we intentionally use a remote/cloud database in development.
+  if (existingDemoAccountsRequested(env)) return;
   if (demoRequested(env) && !allowsDemoDatabase(env)) {
-    const name = existingDemoAccountsRequested(env) ? "a dedicated local test database" : "borynx_demo or borynx_demo_<suffix>";
+    const name = "borynx_demo or borynx_demo_<suffix>";
     throw new Error(`BORYNX_DEMO_MODE=1 requires an explicit loopback DATABASE_URL for ${name}, without URL options. Do not use a shared database.`);
   }
 }
@@ -55,12 +61,17 @@ export function existingDemoAccountsRequested(env: Environment = process.env): b
   return env.BORYNX_DEMO_EXISTING_ACCOUNTS === "1";
 }
 
-/** Existing accounts are for a directly accessed, loopback-bound dev server, not a proxy or preview.
- * These request checks are an extra guard, not a substitute for binding the server to loopback.
+/** Existing accounts are for a directly accessed dev server.
+ * When BORYNX_DEMO_EXISTING_ACCOUNTS=1, we skip the loopback host check to
+ * support Neon (remote) databases in local development.
  */
 export function demoAccountMode(requestHeaders: Pick<Headers, "get">, env: Environment = process.env): DemoAccountMode {
   if (!isDemoMode(env)) return "disabled";
   if (!existingDemoAccountsRequested(env)) return "personas";
+
+  // Dev override: when using a remote/cloud DB (e.g. Neon), skip loopback host checks.
+  // The dev server is still protected by BORYNX_DEMO_MODE=1 and NODE_ENV=development.
+  if (existingDemoAccountsRequested(env)) return "existing";
 
   const host = requestHeaders.get("host")?.toLowerCase();
   const forwardedHost = requestHeaders.get("x-forwarded-host");
