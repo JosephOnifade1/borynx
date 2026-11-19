@@ -49,5 +49,5 @@ export async function confirmIntake(config: EmailAuthConfig, session: VerifiedSe
     const result = await submitPendingLead(tx, session.user.id, intake.submissionKey, intake.brief);
     await tx.update(leadIntakes).set({ leadId: result.lead.id, consumedAt: now, brief: null, displayName: null, companyName: null }).where(eq(leadIntakes.id, intake.id));
     return result;
-  });
+  }, { isolationLevel: "read committed" });
 }

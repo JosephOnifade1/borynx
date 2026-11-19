@@ -91,7 +91,7 @@ export async function destroySession(token: string): Promise<void> {
 
 export type ResolvedSession = { user: User; token: string } & (
   | { kind: "demo"; transport: SessionTransport }
-  | { kind: "email"; transport: "cookie"; email: string; intakeId: string | null }
+  | { kind: "email"; transport: "cookie"; email: string; authIdentityId: number; intakeId: string | null }
 );
 
 function markSessionSeen(id: string, lastSeenAt: Date) {
@@ -106,13 +106,13 @@ export const getSession = cache(async (): Promise<ResolvedSession | null> => {
   if (config && isAuthHost(config, hdrs)) {
     const token = jar.get(EMAIL_SESSION_COOKIE)?.value;
     if (!token || !OPAQUE_TOKEN.test(token)) return null;
-    const [row] = await db.select({ user: users, email: authIdentities.email, intakeId: sessions.intakeId, id: sessions.id, lastSeenAt: sessions.lastSeenAt })
+    const [row] = await db.select({ user: users, email: authIdentities.email, authIdentityId: authIdentities.id, intakeId: sessions.intakeId, id: sessions.id, lastSeenAt: sessions.lastSeenAt })
       .from(sessions).innerJoin(users, eq(users.id, sessions.userId))
       .innerJoin(authIdentities, and(eq(authIdentities.id, sessions.authIdentityId), eq(authIdentities.userId, users.id)))
       .where(and(eq(sessions.id, hashToken(token)), gt(sessions.expiresAt, new Date()), eq(authIdentities.provider, config.provider))).limit(1);
     if (!row) return null;
     markSessionSeen(row.id, row.lastSeenAt);
-    return { kind: "email", transport: "cookie", user: row.user, token, email: row.email, intakeId: row.intakeId };
+    return { kind: "email", transport: "cookie", user: row.user, token, email: row.email, authIdentityId: row.authIdentityId, intakeId: row.intakeId };
   }
 
   // Legacy/demo credentials can only be resolved through the existing account gate.

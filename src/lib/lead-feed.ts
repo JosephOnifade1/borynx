@@ -1,9 +1,11 @@
 import { and, arrayOverlaps, count, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
-import { leads, leadSaves, spaces, users, votes } from "@/db/schema";
-import { openPublicLead, publicLead } from "./lead-access";
+import { leads, leadSaves, leadServiceOrders, spaces, users, votes } from "@/db/schema";
+import { openPublicLead, publicLead, serviceEligibleLead } from "./lead-access";
 import { LEAD_PAGE_SIZE, LEAD_RANK_WINDOW, leadSeekToken, type LeadFilters, type LeadPaging } from "./lead-discovery";
 import { getLeadEngagement } from "./lead-engagement";
+import { leadServicePrice } from "./lead-service-policy";
+import { liveSponsorship } from "./lead-services";
 import { rankItems } from "./sorting";
 import type { CursorPage, FeedLead, LeadFeedPage } from "./types";
 import { routes } from "./utils";
@@ -66,6 +68,17 @@ function matchingLeads(filters: LeadFilters, authorId: number | undefined): SQL 
   if (filters.max !== undefined) conditions.push(lte(leads.budgetMin, filters.max));
   if (filters.skills.length) conditions.push(arrayOverlaps(leads.skillTags, filters.skills));
   return and(...conditions)!;
+}
+
+/** One separate placement. Never inject sponsored IDs into the organic list, total, or cursor. */
+export async function getSponsoredLead(filters: LeadFilters) {
+  if (leadServicePrice("sponsored_lead") === null) return null;
+  const [lead] = await db.select({ id: leads.id, slug: leads.slug, title: leads.title, category: leads.category,
+    budgetMin: leads.budgetMin, budgetMax: leads.budgetMax, currency: leads.currency, budgetUnit: leads.budgetUnit,
+  }).from(leadServiceOrders).innerJoin(leads, and(eq(leads.id, leadServiceOrders.leadId), eq(leads.authorId, leadServiceOrders.buyerId)))
+    .where(and(liveSponsorship, serviceEligibleLead, matchingLeads(filters, undefined)))
+    .orderBy(desc(leadServiceOrders.sponsorUntil), desc(leadServiceOrders.id)).limit(1);
+  return lead ?? null;
 }
 
 function olderThan(time: FeedTime, id: typeof leads.id | typeof leadSaves.leadId, cursor: { time: string; id: number }) {

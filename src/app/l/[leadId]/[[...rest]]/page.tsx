@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { leadBids, leads, reports, spaces, users, votes } from "@/db/schema";
 import { ShareButton, VoteRail } from "@/components/feed/controls";
 import { BidForm } from "@/components/leads/BidForm";
+import { LeadServiceOffers } from "@/components/leads/LeadServiceOffers";
 import { BuyerReview } from "@/components/leads/BuyerReview";
 import { LeadComposer } from "@/components/leads/LeadComposer";
 import { LeadEngagementBadge } from "@/components/leads/LeadEngagementBadge";
@@ -78,6 +79,7 @@ async function PrivateLead({ row }: { row: VisibleLead }) {
   const needsChanges = lead.publicationStatus === "changes_requested";
   const canReview = active && isStaff && !isOwner && lead.publicationStatus === "pending_review";
   const canWithdraw = canEdit && (lead.publicationStatus === "pending_review" || needsChanges);
+  const canCloseListing = canEdit && lead.publicationStatus === "published";
   const [publicSpaces, flags] = await Promise.all([
     canEdit && needsChanges ? db.select({ slug: spaces.slug, name: spaces.name }).from(spaces).where(eq(spaces.privacy, "public")).orderBy(spaces.name) : Promise.resolve([]),
     isStaff ? db.select({ id: reports.id, details: reports.details }).from(reports).where(and(
@@ -103,6 +105,7 @@ async function PrivateLead({ row }: { row: VisibleLead }) {
           {space && <span className="tag">b/{space.slug}</span>}
         </div>
         <Skills tags={lead.skillTags} />
+        {lead.deliveryTimeline && <p className="mt-3 text-[12.5px] text-ink-2">Delivery timeline: {lead.deliveryTimeline}</p>}
         {lead.deadlineAt && <p className="mt-2 text-[12.5px] text-ink-3">Bid deadline: <UtcTime date={lead.deadlineAt} /></p>}
         <div className="mt-4"><MarkdownRenderer source={lead.description} /></div>
         {lead.reviewNote && <aside className="mt-4 rounded-md border border-line bg-sunken/40 px-3 py-2.5">
@@ -113,13 +116,14 @@ async function PrivateLead({ row }: { row: VisibleLead }) {
           <ul className="mt-2 space-y-1 text-[12.5px] text-ink-2">{flags.map((flag) => <li key={flag.id}>{flag.details}</li>)}</ul>
         </aside>}
         {canWithdraw && <WithdrawLeadButton leadId={lead.id} />}
+        {canCloseListing && <div className="mt-4"><LeadOutcomeControls leadId={lead.id} awarded={false} /></div>}
         {isStaff && isOwner && active && lead.publicationStatus === "pending_review" && <p className="mt-3 text-[13px] text-ink-3">Another site reviewer must decide on your submission.</p>}
       </article>
       {canReview && <LeadReviewControls key={lead.revision} leadId={lead.id} revision={lead.revision} canPublish={!space || space.privacy === "public"} />}
       {canEdit && needsChanges && <section className="border-t border-line" aria-label="Make corrections">
         <h2 className="display px-4 pt-5 text-[17px] sm:px-7">Revise your brief</h2>
         <LeadComposer key={lead.revision} spaces={publicSpaces} correction={{ id: lead.id, revision: lead.revision, enforceFloor: lead.submissionKey !== null, fields: {
-          title: lead.title, description: lead.description, kind: lead.kind, category: lead.category, currency: lead.currency,
+          title: lead.title, description: lead.description, deliveryTimeline: lead.deliveryTimeline ?? "", kind: lead.kind, category: lead.category, currency: lead.currency,
           budgetMin: String(lead.budgetMin), budgetMax: String(lead.budgetMax), budgetUnit: lead.budgetUnit ?? "", skillTags: lead.skillTags,
           deadlineAt: lead.deadlineAt?.toISOString().slice(0, 16) ?? "", spaceSlug: space?.privacy === "public" ? space.slug : "", location: lead.location,
         } }} />
@@ -176,7 +180,7 @@ export default async function LeadPage({ params, searchParams }: {
   const canAward = canManage && canSelectBid(lead);
   const hasWinner = pitches.some((pitch) => matchesLeadAward(lead, pitch));
   const canFinish = canManage && lead.status === "awarded" && hasWinner;
-  const description = engagement === "completed" ? "The buyer marked this work complete. Borynx does not verify payment."
+  const description = engagement === "completed" ? "Buyer marked this lead complete. Borynx does not verify work or payment."
     : engagement === "awarded" ? "The buyer selected a pitch. The work has not been marked complete."
       : engagement === "cancelled" ? "The buyer cancelled the engagement after selecting a pitch."
         : engagement === "closed" ? "This lead was closed without selecting a winner."
@@ -270,6 +274,7 @@ export default async function LeadPage({ params, searchParams }: {
           </div>
           <div className="min-w-0 flex-1">
             <MarkdownRenderer source={lead.description} />
+            {lead.deliveryTimeline && <p className="mt-4 text-[13px] text-ink-2"><strong>Delivery timeline:</strong> {lead.deliveryTimeline}</p>}
             <Skills tags={lead.skillTags} />
             <div className="mt-5 flex flex-wrap items-center gap-1 border-t border-line pt-3">
               <LeadSaveButton leadId={lead.id} saved={saved} />
@@ -283,6 +288,9 @@ export default async function LeadPage({ params, searchParams }: {
       {kickoff && <LeadKickoff key={`${lead.id}:${user?.id}`} leadId={lead.id} kickoff={kickoff} />}
       {reviewSlot && <BuyerReview key={lead.id} leadId={lead.id} {...reviewSlot} />}
 
+      {canManage && engagement === "open" && lead.status === "open" && lead.publishedAt && lead.reviewedAt && (
+        <LeadServiceOffers leadId={lead.id} ownerId={lead.authorId} />
+      )}
       <section id="bid" className="scroll-mt-24 space-y-4 border-t border-line px-4 py-5 sm:px-6" aria-label={isOwner ? "Pitches received" : "Pitches"}>
         {isOwner ? (
           <>

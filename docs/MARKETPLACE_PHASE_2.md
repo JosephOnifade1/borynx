@@ -16,7 +16,7 @@ Run `npm ci` and `npm run dev:demo`. Use separate browser profiles or Playwright
 ## Write and visibility rules
 
 - `POST /api/leads/:id/bids` accepts a positive whole-number quote and a trimmed pitch of 20–4,000 characters. A bidder can submit once per lead and up to six successful pitches per ten minutes across leads (`429` with `Retry-After` if limited). Owners cannot bid on their own leads. The deadline prevents new pitches, not awards from existing pitches.
-- Only the non-suspended owner can select a winner. Repeating the same successful award returns the current status without another write, +50 karma increment, or notification. Competing awards conflict. New awards and outcomes serialize on the lead row along with bidding and moderation removal.
+- Only the non-suspended owner can select a winner. Repeating the same successful award returns the current status without another write or notification. New awards and completions do not grant karma; previous award karma remains in the ledger. Competing awards conflict. New awards and outcomes serialize on the lead row along with bidding and moderation removal.
 - `PATCH /api/leads/:id/status` takes an `action`: `close_without_hire`, `complete`, `cancel`, or `withdraw` for the Phase 1 pre-publication author action. There is no reopening or reassignment. Report approval hides the listing independently of its outcome.
 - There is no staff override for hiring or general staff access to pitches. Pitch access in the app is limited to the buyer and the bidder who submitted each pitch, on a visible public listing. Older listings with no recorded budget unit are shown as such.
 

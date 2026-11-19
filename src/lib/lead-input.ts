@@ -6,6 +6,7 @@ export const LEAD_CURRENCIES = ["USD", "EUR", "GBP"] as const;
 export const LEAD_BUDGET_UNITS = ["fixed", "hourly"] as const;
 export const MAX_LEAD_BUDGET = 10_000_000;
 export const MAX_LEAD_SKILLS = 6;
+export const MAX_LEAD_TIMELINE = 160;
 
 export const CONTRACT_FLOORS: Record<(typeof LEAD_CURRENCIES)[number], Record<(typeof LEAD_BUDGET_UNITS)[number], number>> = {
   USD: { fixed: 50, hourly: 20 },
@@ -26,6 +27,7 @@ export const LEAD_SKILLS: Record<string, string> = {
 export interface LeadFields {
   title: string;
   description: string;
+  deliveryTimeline: string;
   category: (typeof LEAD_CATEGORIES)[number];
   kind: (typeof LEAD_KINDS)[number];
   budgetMin: number;
@@ -87,12 +89,15 @@ export function parseLeadFields(value: unknown, { now = Date.now(), enforceFloor
   const body = leadBody(value);
   const title = trimmed(body.title, "title", "Title", 10, 180);
   const description = trimmed(body.description, "description", "Brief", 60, 20_000);
+  const deliveryTimeline = trimmed(body.deliveryTimeline, "deliveryTimeline", "Delivery timeline", 3, MAX_LEAD_TIMELINE);
+  if (/[\r\n\u2028\u2029]/u.test(deliveryTimeline)) fieldError("deliveryTimeline", "Enter a delivery timeline on one line.");
   const category = choice(body.category, LEAD_CATEGORIES, "category", "discipline");
   const kind = choice(body.kind, LEAD_KINDS, "kind", "lead type");
   const currency = choice(body.currency, LEAD_CURRENCIES, "currency", "currency");
   const budgetUnit = choice(body.budgetUnit, LEAD_BUDGET_UNITS, "budgetUnit", "budget unit");
   const budgetMin = amount(body.budgetMin, "budgetMin", "Minimum budget");
   const budgetMax = amount(body.budgetMax, "budgetMax", "Maximum budget");
+  if (budgetMax === 0) fieldError("budgetMax", "Enter a positive budget for the work.");
   if (budgetMax < budgetMin) fieldError("budgetMax", "Maximum budget must be at least the minimum.");
   if (enforceFloor && kind === "contract") {
     const floor = CONTRACT_FLOORS[currency][budgetUnit];
@@ -125,5 +130,5 @@ export function parseLeadFields(value: unknown, { now = Date.now(), enforceFloor
   if (location.includes("\0") || /[\uD800-\uDFFF]/u.test(location)) fieldError("location", "Location contains an unsupported character.");
   let spaceSlug: string | null = null;
   if (body.spaceSlug != null && body.spaceSlug !== "") spaceSlug = trimmed(body.spaceSlug, "spaceSlug", "Space", 1, 48).toLowerCase();
-  return { title, description, category, kind, budgetMin, budgetMax, currency, budgetUnit, skillTags: [...skills], deadlineAt, location, spaceSlug };
+  return { title, description, deliveryTimeline, category, kind, budgetMin, budgetMax, currency, budgetUnit, skillTags: [...skills], deadlineAt, location, spaceSlug };
 }

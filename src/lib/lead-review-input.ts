@@ -1,6 +1,8 @@
 import type { LeadReview } from "@/db/schema";
 import { HttpError } from "./errors";
 
+export const MIN_BUYERS_FOR_RATING = 3;
+
 export const REVIEW_LIMITS = { min: 20, max: 2_000, reason: 500 } as const;
 export const REVIEW_RATINGS = [1, 2, 3, 4, 5] as const;
 export const REVIEW_ACTIONS = ["publish", "hide", "restore"] as const;

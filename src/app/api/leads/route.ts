@@ -25,6 +25,6 @@ export const POST = handler(async (req: NextRequest) => {
   const actor = await requireActor();
   const body = leadBody(await readJson(req));
   const submissionKey = parseSubmissionKey(body.submissionKey);
-  const result = await db.transaction((tx) => submitPendingLead(tx, actor.id, submissionKey, body));
+  const result = await db.transaction((tx) => submitPendingLead(tx, actor.id, submissionKey, body), { isolationLevel: "read committed" });
   return submissionResponse(result.lead, result.status);
 });

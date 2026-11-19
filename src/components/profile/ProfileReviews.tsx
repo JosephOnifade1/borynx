@@ -2,6 +2,7 @@ import { Star } from "lucide-react";
 import Link from "next/link";
 import { LeadReviewModeration } from "@/components/mod/LeadReviewModeration";
 import { ReportButton } from "@/components/shell/ReportModal";
+import { MIN_BUYERS_FOR_RATING } from "@/lib/lead-review-input";
 import type { PublicLeadReviewsPage } from "@/lib/lead-reviews";
 import { routes } from "@/lib/utils";
 
@@ -10,16 +11,16 @@ const dateFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone
 export function ProfileReviews({ page, username, staffUsername, paged, invalidCursor }: {
   page: PublicLeadReviewsPage; username: string; staffUsername?: string; paged: boolean; invalidCursor: boolean;
 }) {
-  const { items, count, averageRating, nextCursor } = page;
+  const { items, count, buyerCount, averageRating, nextCursor } = page;
   return (
     <section id="profile-reviews" aria-labelledby="profile-reviews-heading" className="scroll-mt-24 space-y-3">
       <header className="panel rounded-lg px-4 py-4 sm:px-5">
         <h2 id="profile-reviews-heading" className="display text-[18px]">Engagement reviews</h2>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           {averageRating !== null && <span className="num text-[20px] font-semibold">{averageRating.toFixed(1)} / 5</span>}
-          <span className="text-[13px] text-ink-3"><span className="num">{count}</span> {count === 1 ? "review" : "reviews"}</span>
+          <span className="text-[13px] text-ink-3"><span className="num">{count}</span> {count === 1 ? "review" : "reviews"} from <span className="num">{buyerCount}</span> {buyerCount === 1 ? "buyer account" : "buyer accounts"}</span>
         </div>
-        <p className="mt-1 text-[13px] text-ink-3">Only buyers who marked an awarded lead complete can leave a review. This doesn’t verify payment or identity.</p>
+        <p className="mt-1 text-[13px] text-ink-3">Each buyer’s latest eligible rating counts once. The average appears after {MIN_BUYERS_FOR_RATING} distinct buyer accounts. Reviews don’t verify work, payment, or identity.</p>
         {invalidCursor && <p className="mt-2 text-[13px] text-ink-3">That page link was invalid. You’re viewing the newest reviews.</p>}
       </header>
       {items.length > 0 ? (
@@ -28,7 +29,7 @@ export function ProfileReviews({ page, username, staffUsername, paged, invalidCu
             <li key={item.id} className="panel rounded-lg px-4 py-4 sm:px-5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="num inline-flex items-center gap-1.5 text-[14px] font-semibold"><Star size={14} className="text-gold" aria-hidden="true" />{item.rating} / 5</span>
-                <span className="text-[12px] font-medium text-ink-3">From a completed Borynx lead</span>
+                <span className="text-[12px] font-medium text-ink-3">Buyer marked this lead complete</span>
               </div>
               <p className="mt-2 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-2 [overflow-wrap:anywhere]">{item.testimonial}</p>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t border-line pt-2.5">

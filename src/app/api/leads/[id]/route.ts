@@ -6,8 +6,8 @@ import { HttpError, requireActor } from "@/lib/auth";
 import { lockLead, parseLeadId } from "@/lib/lead-access";
 import { canSelectBid } from "@/lib/lead-engagement";
 import { leadBody, parseLeadFields, parseLeadRevision } from "@/lib/lead-input";
-import { leadWriteValues, submissionResponse } from "@/lib/lead-submissions";
-import { fileAutoReport, screenContent } from "@/lib/services";
+import { leadWriteValues, screenLead, submissionResponse } from "@/lib/lead-submissions";
+import { fileAutoReport } from "@/lib/services";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,7 @@ export const PATCH = handler(async (req, { params }) => {
       throw new HttpError(409, "This submission has changed or is not open for corrections. Reload and try again.", "lead_conflict");
     }
     const fields = parseLeadFields(body, { enforceFloor: lead.submissionKey !== null });
-    const verdict = screenContent(`${fields.title}\n${fields.description}\n${fields.location}`);
+    const verdict = screenLead(fields);
     const values = await leadWriteValues(tx, fields);
     const [updated] = await tx.update(leads).set({ ...values, publicationStatus: "pending_review", revision: revision + 1 })
       .where(eq(leads.id, id)).returning();

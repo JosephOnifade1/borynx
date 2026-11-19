@@ -1,10 +1,12 @@
-import { and, avg, count, desc, eq, exists, isNull, or, sql } from "drizzle-orm";
+import "server-only";
+import { and, count, desc, eq, exists, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, type Database } from "@/db";
 import { leadBids, leadReviewDecisions, leadReviews, leads, reports, users, type LeadReview } from "@/db/schema";
 import { HttpError } from "./errors";
-import { explicitlyCompletedLead, lockLead, matchingLeadAward, publicLead, recordedLeadCompletion } from "./lead-access";
-import type { ReviewCursor, ReviewDecision, ReviewInput, ReviewResult, ReviewVisibility } from "./lead-review-input";
+import { activeLeadAward, explicitlyCompletedLead, lockLead, matchingLeadAward, publicLead, recordedLeadCompletion } from "./lead-access";
+import { MIN_BUYERS_FOR_RATING, type ReviewCursor, type ReviewDecision, type ReviewInput, type ReviewResult, type ReviewVisibility } from "./lead-review-input";
+import { findLeadReviewSignals, SIGNAL_SAMPLE_SIZE, SIGNAL_WINDOW_DAYS } from "./lead-review-signals";
 import { screenContent } from "./services";
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -70,7 +72,16 @@ export async function countPublicLeadReviews(recipientId: number) {
 export async function listPublicLeadReviews(recipientId: number, cursor?: ReviewCursor) {
   return db.transaction(async (tx) => {
     const where = publicReviewsFor(recipientId);
-    const [totals] = await tx.select({ count: count(), average: avg(leadReviews.rating) }).from(leadReviews).where(where);
+    // Rank only eligible reviews. A hidden or no-longer-public latest review falls back to that buyer's previous eligible one.
+    const ranked = tx.select({
+      rating: leadReviews.rating,
+      position: sql<number>`row_number() over (partition by ${leadReviews.reviewerId} order by ${leadReviews.createdAt} desc, ${leadReviews.id} desc)`.as("buyer_position"),
+    }).from(leadReviews).where(where).as("ranked_reviews");
+    const [totals] = await tx.select({
+      count: count(),
+      buyerCount: sql<number>`count(*) filter (where ${ranked.position} = 1)`.mapWith(Number),
+      average: sql<string | null>`avg(${ranked.rating}) filter (where ${ranked.position} = 1)`,
+    }).from(ranked);
     const older = cursor ? sql`(${leadReviews.createdAt}, ${leadReviews.id}) < (${cursor.time}::timestamptz, ${cursor.id}::int)` : undefined;
     const rows = await tx.select({
       id: leadReviews.id, rating: leadReviews.rating, testimonial: leadReviews.testimonial,
@@ -83,7 +94,8 @@ export async function listPublicLeadReviews(recipientId: number, cursor?: Review
     return {
       items: rows.slice(0, pageSize).map(({ id, rating, testimonial, createdAt, reviewer }) => ({ id, rating, testimonial, createdAt: createdAt.toISOString(), reviewer })),
       count: totals.count,
-      averageRating: totals.average === null ? null : Number(totals.average),
+      buyerCount: totals.buyerCount,
+      averageRating: totals.buyerCount < MIN_BUYERS_FOR_RATING || totals.average === null ? null : Number(totals.average),
       nextCursor: rows.length > pageSize ? `${last.time}:${last.id}` : null,
     };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
@@ -148,3 +160,20 @@ export async function listLeadReviewQueue(visibility: "pending_review" | "hidden
 }
 
 export type LeadReviewQueueItem = Awaited<ReturnType<typeof listLeadReviewQueue>>[number];
+
+/** Only for the authorized site-wide queue. No stored risk score, reports, or automatic actions. */
+export async function listLeadReviewSignals() {
+  const winner = alias(users, "signal_winner");
+  const activity = sql`greatest(${leads.awardedAt}, ${leads.completedAt}, ${leadReviews.createdAt})`;
+  const rows = await db.select({
+    leadId: leads.id, buyerId: leads.authorId, winnerId: leadBids.userId,
+    buyer: users.username, winner: winner.username, awardedAt: leads.awardedAt, completedAt: leads.completedAt,
+    review: { id: leadReviews.id, testimonial: leadReviews.testimonial },
+  }).from(leads).innerJoin(leadBids, matchingLeadAward)
+    .innerJoin(users, eq(leads.authorId, users.id)).innerJoin(winner, eq(leadBids.userId, winner.id))
+    .leftJoin(leadReviews, and(eq(leadReviews.leadId, leads.id), eq(leadReviews.reviewerId, leads.authorId),
+      eq(leadReviews.recipientId, leadBids.userId), explicitlyCompletedLead, inArray(leadReviews.visibility, ["published", "pending_review"])))
+    .where(and(or(activeLeadAward, and(publicLead, explicitlyCompletedLead)), gte(activity, sql`now() - ${SIGNAL_WINDOW_DAYS}::integer * interval '1 day'`)))
+    .orderBy(desc(activity), desc(leads.id)).limit(SIGNAL_SAMPLE_SIZE);
+  return findLeadReviewSignals(rows);
+}

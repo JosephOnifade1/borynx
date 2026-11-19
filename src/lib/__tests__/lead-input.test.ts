@@ -7,6 +7,7 @@ const valid = {
   title: "Review a customer onboarding flow",
   description: "Produce a short accessibility audit of three onboarding screens and deliver a prioritized list of fixes.",
   category: "Web & Mobile", kind: "contract", budgetMin: 50, budgetMax: 200,
+  deliveryTimeline: "  Two weeks from kickoff  ",
   currency: "USD", budgetUnit: "fixed", skillTags: ["react", "accessibility"],
 };
 const parse = (fields: Record<string, unknown>) => parseLeadFields({ ...valid, ...fields }, { now });
@@ -28,6 +29,9 @@ describe("new lead validation", () => {
       title: valid.title, skillTags: ["react", "postgresql"], deadlineAt: "2027-01-10T14:00:00.000Z", location: "Remote", spaceSlug: null, budgetUnit: "fixed",
     });
     invalid({ budgetUnit: undefined }, "budgetUnit");
+    expect(parse({}).deliveryTimeline).toBe("Two weeks from kickoff");
+    for (const deliveryTimeline of [undefined, " ", "Day one\nDay two", "A".repeat(161)]) invalid({ deliveryTimeline }, "deliveryTimeline");
+    invalid({ kind: "bounty", budgetMin: 0, budgetMax: 0 }, "budgetMax");
   });
 
   it.each(Object.entries(CONTRACT_FLOORS))("enforces %s floors for new contracts only", (currency, floors) => {

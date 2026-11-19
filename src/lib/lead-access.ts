@@ -1,4 +1,4 @@
-import { and, eq, exists, gt, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, exists, gt, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { leadBids, leadKickoffs, leads, spaces, type Lead } from "@/db/schema";
 import { HttpError } from "./errors";
@@ -27,6 +27,13 @@ export const openPublicLead = and(
   isNull(leads.acceptedBidId), isNull(leads.assignedUserId),
   or(isNull(leads.deadlineAt), gt(leads.deadlineAt, sql`now()`)),
 )!;
+
+/** An opt-in service is only available after manual publication, on an open public lead. */
+export const serviceEligibleLead = and(openPublicLead, isNotNull(leads.publishedAt), isNotNull(leads.reviewedAt))!;
+
+/** A slot covers review, revision and an open listing; an elapsed bid deadline alone does not close it. */
+export const activeLeadSubmission = and(eq(leads.isRemoved, false), inArray(leads.status, ["open", "in_review"]),
+  ne(leads.publicationStatus, "rejected"), eq(leads.awardNeedsReview, false), isNull(leads.acceptedBidId), isNull(leads.assignedUserId))!;
 
 // The SQL equivalent of matchesLeadAward. Keep the canonical pointers, bid ownership,
 // and accepted flag together; a closed listing or a stray accepted flag alone is not evidence.
