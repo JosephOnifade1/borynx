@@ -11,6 +11,7 @@ import {
   pgTable,
   primaryKey,
   serial,
+  smallint,
   text,
   unique,
   timestamp,
@@ -34,7 +35,8 @@ export const leadKindEnum = pgEnum("lead_kind", ["bounty", "contract", "job"]);
 export const leadStatusEnum = pgEnum("lead_status", ["open", "in_review", "closed", "awarded", "completed", "cancelled"]);
 export const leadPublicationEnum = pgEnum("lead_publication_status", ["pending_review", "changes_requested", "published", "rejected"]);
 export const leadBudgetUnitEnum = pgEnum("lead_budget_unit", ["fixed", "hourly"]);
-export const reportTargetEnum = pgEnum("report_target", ["post", "comment", "lead"]);
+export const leadReviewVisibilityEnum = privateSchema.enum("lead_review_visibility", ["published", "pending_review", "hidden"]);
+export const reportTargetEnum = pgEnum("report_target", ["post", "comment", "lead", "lead_review"]);
 export const reportReasonEnum = pgEnum("report_reason", [
   "spam_scam",
   "off_topic",
@@ -394,6 +396,43 @@ export const leadSaves = privateSchema.table("lead_saves", {
   index("lead_saves_lead_idx").on(t.leadId),
 ]).enableRLS();
 
+/** Reviews belong to the engagement, not to an anonymous record after either account is deleted. */
+export const leadReviews = privateSchema.table("lead_reviews", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "cascade" }).notNull().unique(),
+  reviewerId: integer("reviewer_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  recipientId: integer("recipient_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  rating: smallint("rating").notNull(),
+  testimonial: text("testimonial").notNull(),
+  visibility: leadReviewVisibilityEnum("visibility").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedById: integer("reviewed_by_id").references(() => users.id, { onDelete: "set null" }),
+  reviewNote: varchar("review_note", { length: 500 }),
+}, (t) => [
+  check("lead_reviews_rating_range", sql`${t.rating} between 1 and 5`),
+  check("lead_reviews_distinct_participants", sql`${t.reviewerId} <> ${t.recipientId}`),
+  check("lead_reviews_testimonial_length", sql`length(trim(${t.testimonial})) between 20 and 2000`),
+  index("lead_reviews_recipient_recent_idx").on(t.recipientId, t.visibility, t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst()),
+  index("lead_reviews_reviewer_idx").on(t.reviewerId),
+  index("lead_reviews_queue_idx").on(t.visibility, t.createdAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+    .where(sql`${t.visibility} <> 'published'`),
+]).enableRLS();
+
+/** Append-only decisions while the review exists; deleting it also erases the decision notes. */
+export const leadReviewDecisions = privateSchema.table("lead_review_decisions", {
+  id: serial("id").primaryKey(),
+  reviewId: integer("review_id").references(() => leadReviews.id, { onDelete: "cascade" }).notNull(),
+  moderatorId: integer("moderator_id").references(() => users.id, { onDelete: "set null" }),
+  action: varchar("action", { length: 7 }).$type<"publish" | "hide" | "restore">().notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  check("lead_review_decisions_action", sql`${t.action} in ('publish', 'hide', 'restore')`),
+  check("lead_review_decisions_reason", sql`length(trim(${t.reason})) > 0`),
+  index("lead_review_decisions_review_idx").on(t.reviewId, t.createdAt),
+]).enableRLS();
+
 /** Unowned, short-lived drafts are separate from marketplace leads and queues. */
 export const leadIntakes = privateSchema.table("lead_intakes", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -663,6 +702,7 @@ export type Post = typeof posts.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type Lead = typeof leads.$inferSelect;
 export type LeadBid = typeof leadBids.$inferSelect;
+export type LeadReview = typeof leadReviews.$inferSelect;
 export type Report = typeof reports.$inferSelect;
 export type Badge = typeof badges.$inferSelect;
 export type UserBadge = typeof userBadges.$inferSelect;

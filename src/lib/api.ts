@@ -29,8 +29,8 @@ export function handler(fn: Handler) {
   };
 }
 
-export function privateJson(data: unknown): Response {
-  return Response.json(data, { headers: { "Cache-Control": "private, no-store" } });
+export function privateJson(data: unknown, status = 200): Response {
+  return Response.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 }
 
 /** Require an exact browser origin even in local demo mode for private writes. */

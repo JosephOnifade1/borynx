@@ -53,6 +53,7 @@ export const routes = {
   postEdit: (id: number) => `/p/${id}/edit`,
   profile: (username: string) => `/f/${username}`,
   profileProjects: (username: string) => `/f/${username}?tab=projects`,
+  profileReviews: (username: string, cursor?: string) => `/f/${username}?tab=reviews${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
   me: () => "/me",
   leads: () => "/l",
   leadNew: () => "/l/new",

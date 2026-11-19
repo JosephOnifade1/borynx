@@ -8,21 +8,21 @@ import { api, ClientError } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/ui";
 
-export function ReportDecision({ reportId }: { reportId: number }) {
+export function ReportDecision({ reportId, review = false }: { reportId: number; review?: boolean }) {
   const router = useRouter();
   const notify = useUiStore((s) => s.notify);
   const m = useMutation({
     mutationFn: (action: "approve" | "dismiss") => api<{ ok: true; status: string }>(`/api/mod/reports/${reportId}`, { method: "PATCH", json: { action } }),
     onSuccess: (r) => {
-      notify(r.status === "approved" ? "Content removed and report resolved" : "Report dismissed", "success");
+      notify(r.status === "approved" ? (review ? "Review report resolved" : "Content removed and report resolved") : "Report dismissed", "success");
       router.refresh();
     },
     onError: (e) => notify(e instanceof ClientError ? e.message : "Action failed", "error"),
   });
   return (
     <div className="flex gap-1.5">
-      <button type="button" className="btn btn-sm btn-danger" onClick={() => m.mutate("approve")} disabled={m.isPending} title="Approve report: remove the content">
-        <Trash2 size={12} /> Remove
+      <button type="button" className="btn btn-sm btn-danger" onClick={() => m.mutate("approve")} disabled={m.isPending} title={review ? "Approve report: hide the review" : "Approve report: remove the content"}>
+        <Trash2 size={12} /> {review ? "Hide review" : "Remove"}
       </button>
       <button type="button" className="btn btn-sm" onClick={() => m.mutate("dismiss")} disabled={m.isPending} title="Dismiss report: keep the content">
         <X size={12} /> Dismiss

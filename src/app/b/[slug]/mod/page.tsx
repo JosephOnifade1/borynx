@@ -26,7 +26,7 @@ export default async function SpaceModPage({ params }: { params: Promise<{ slug:
     db.select({ id: leads.id }).from(leads).where(and(eq(leads.id, reports.targetId), publicLead)),
   ));
   const [pending, mods, recentlyRemoved] = await Promise.all([
-    db.select().from(reports).where(and(eq(reports.spaceId, space.id), eq(reports.status, "pending"), reportAccess)).orderBy(desc(reports.createdAt)).limit(50),
+    db.select().from(reports).where(and(eq(reports.spaceId, space.id), eq(reports.status, "pending"), ne(reports.targetType, "lead_review"), reportAccess)).orderBy(desc(reports.createdAt)).limit(50),
     db
       .select({ username: users.username, modRole: memberships.modRole })
       .from(memberships)

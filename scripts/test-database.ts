@@ -596,11 +596,95 @@ async function checkLeadDiscoveryUpgrade(url: string, directory: string) {
   console.log("PASS 0010 → 0011 preserves legacy budgets, thread saves and portfolios; lead bookmarks are app-only");
 }
 
+async function checkLeadReviewUpgrade(url: string, directory: string) {
+  const previous = await copyJournalPrefix(directory, "lead-saves-migrations", 12);
+  await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, previous.folder), { applied: previous.count, available: previous.count });
+    const { rows: [buyer, winner, moderator] } = await pool.query<{ id: number }>(`insert into users (username, display_name, role) values
+      ('review-upgrade-buyer', 'Review Upgrade Buyer', 'member'), ('review-upgrade-winner', 'Review Upgrade Winner', 'member'),
+      ('review-upgrade-moderator', 'Review Upgrade Moderator', 'moderator') returning id`);
+    const { rows: [lead] } = await pool.query<{ id: number }>(`insert into leads (author_id, slug, title, description, category, status, publication_status, completed_at, assigned_user_id)
+      values ($1, 'review-upgrade', 'Real completed award before reviews', 'Keep this existing scope.', 'Software Engineering', 'completed', 'published', '2025-08-02T12:00:00Z', $2) returning id`, [buyer.id, winner.id]);
+    const { rows: [bid] } = await pool.query(`insert into lead_bids (lead_id, user_id, amount, message, is_accepted)
+      values ($1, $2, 500, 'Keep this private proposal.', true) returning *`, [lead.id, winner.id]);
+    const { rows: [completed] } = await pool.query("update leads set accepted_bid_id = $1, bid_count = 1 where id = $2 returning *", [bid.id, lead.id]);
+    await pool.query("insert into borynx_private.lead_saves (lead_id, user_id) values ($1, $2)", [lead.id, moderator.id]);
+    const { rows: [legacyReport] } = await pool.query(`insert into reports (reporter_id, target_type, target_id, reason, details)
+      values ($1, 'lead', $2, 'off_topic', 'Existing lead report retained') returning *`, [moderator.id, lead.id]);
+    await pool.query(`do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
+      if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+    end $$;
+    alter default privileges in schema borynx_private grant select, insert, update, delete on tables to PUBLIC, anon, authenticated;
+    alter default privileges in schema borynx_private grant usage, select, update on sequences to PUBLIC, anon, authenticated;`);
+
+    const expected = { applied: journal.entries.length, available: journal.entries.length };
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual((await pool.query("select * from leads where id = $1", [lead.id])).rows, [completed]);
+    assert.deepEqual((await pool.query("select * from lead_bids where id = $1", [bid.id])).rows, [bid]);
+    assert.deepEqual((await pool.query("select * from reports where id = $1", [legacyReport.id])).rows, [legacyReport]);
+    assert.deepEqual((await pool.query("select user_id, lead_id from borynx_private.lead_saves")).rows, [{ user_id: moderator.id, lead_id: lead.id }]);
+    for (const table of ["lead_reviews", "lead_review_decisions"]) {
+      const { rows: [privacy] } = await pool.query(`select relrowsecurity,
+        has_table_privilege('anon', oid, 'select,insert,update,delete,truncate,references,trigger') as anon_access,
+        has_table_privilege('authenticated', oid, 'select,insert,update,delete,truncate,references,trigger') as authenticated_access,
+        exists (select 1 from aclexplode(relacl) where grantee = 0) as public_access
+        from pg_class where oid = $1::regclass`, [`borynx_private.${table}`]);
+      assert.deepEqual(privacy, { relrowsecurity: true, anon_access: false, authenticated_access: false, public_access: false });
+      const { rows: [sequence] } = await pool.query(`select has_sequence_privilege('anon', oid, 'usage,select,update') as anon_access,
+        has_sequence_privilege('authenticated', oid, 'usage,select,update') as authenticated_access,
+        exists (select 1 from aclexplode(relacl) where grantee = 0) as public_access
+        from pg_class where oid = $1::regclass`, [`borynx_private.${table}_id_seq`]);
+      assert.deepEqual(sequence, { anon_access: false, authenticated_access: false, public_access: false });
+    }
+    const { rows: [totals] } = await pool.query(`select
+      (select count(*)::int from borynx_private.lead_reviews) as reviews,
+      (select count(*)::int from borynx_private.lead_review_decisions) as decisions`);
+    assert.deepEqual(totals, { reviews: 0, decisions: 0 });
+    const insertReview = (rating: number, recipientId = winner.id) => pool.query(`insert into borynx_private.lead_reviews
+      (lead_id, reviewer_id, recipient_id, rating, testimonial, visibility, reviewed_by_id, reviewed_at, review_note)
+      values ($1, $2, $3, $4, 'A real engagement with a completed review fixture.', 'hidden', $5, now(), 'A test hide.') returning id`,
+    [lead.id, buyer.id, recipientId, rating, moderator.id]);
+    await assert.rejects(insertReview(0), { code: "23514", constraint: "lead_reviews_rating_range" });
+    await assert.rejects(insertReview(6), { code: "23514", constraint: "lead_reviews_rating_range" });
+    await assert.rejects(insertReview(4, buyer.id), { code: "23514", constraint: "lead_reviews_distinct_participants" });
+    const { rows: [review] } = await insertReview(4);
+    await assert.rejects(insertReview(5), { code: "23505", constraint: "lead_reviews_lead_id_unique" });
+    await pool.query(`insert into borynx_private.lead_review_decisions (review_id, moderator_id, action, reason)
+      values ($1, $2, 'hide', 'A test hide.')`, [review.id, moderator.id]);
+    await pool.query("delete from users where id = $1", [moderator.id]);
+    assert.deepEqual((await pool.query("select reviewed_by_id, visibility from borynx_private.lead_reviews where id = $1", [review.id])).rows, [{ reviewed_by_id: null, visibility: "hidden" }]);
+    assert.deepEqual((await pool.query("select moderator_id, action from borynx_private.lead_review_decisions where review_id = $1", [review.id])).rows, [{ moderator_id: null, action: "hide" }]);
+    await pool.query("delete from users where id = $1", [winner.id]);
+    assert.deepEqual((await pool.query("select assigned_user_id from leads where id = $1", [lead.id])).rows, [{ assigned_user_id: null }]);
+    assert.equal((await pool.query("select id from borynx_private.lead_reviews where id = $1", [review.id])).rowCount, 0);
+    assert.equal((await pool.query("select id from borynx_private.lead_review_decisions where review_id = $1", [review.id])).rowCount, 0);
+    // This suite supplies its own fictional accounts. It does not rely on demo auto-seeding.
+    for (const user of DEMO_PERSONAS) {
+      await pool.query("insert into users (username, display_name, headline, avatar_hue, role) values ($1, $2, $3, $4, $5)",
+        [user.username, user.displayName, user.headline, user.avatarHue, user.role]);
+    }
+  });
+  await withApp(url, "personas", (origin) => runAppTests(["src/lib/__tests__/lead-reviews.integration.test.ts"], {
+    BORYNX_REVIEWS_TEST_ORIGIN: origin, BORYNX_REVIEWS_TEST_DATABASE_URL: url,
+  }));
+  console.log("PASS 0011 → 0012 preserves leads, accepted bids, saves and reports without backfilling reviews; app-only grants and deletion policy verified");
+}
+
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
   if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   if (process.argv.includes("--local-demo-only")) return checkDefaultDevSignIn(await createDatabase("app_db"));
   if (process.argv.includes("--profiles-only")) return checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
+  if (process.argv.includes("--lead-reviews-only")) {
+    await usingDatabase(await createDatabase("borynx_demo_lead_reviews_fresh"), async (pool) => {
+      assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+      assert.equal((await pool.query("select id from borynx_private.lead_reviews")).rowCount, 0);
+      assert.equal((await pool.query("select id from borynx_private.lead_review_decisions")).rowCount, 0);
+    });
+    return checkLeadReviewUpgrade(await createDatabase("borynx_demo_lead_reviews"), directory);
+  }
   if (process.argv.includes("--lead-discovery-only")) {
     await usingDatabase(await createDatabase("borynx_demo_lead_discovery_fresh"), async (pool) => {
       assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
@@ -635,4 +719,5 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
   await checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
   await checkPortfolioUpgrade(await createDatabase("borynx_demo_projects"), directory);
   await checkLeadDiscoveryUpgrade(await createDatabase("borynx_demo_lead_discovery"), directory);
+  await checkLeadReviewUpgrade(await createDatabase("borynx_demo_lead_reviews"), directory);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

@@ -2,14 +2,17 @@ import { and, count, desc, eq, inArray, isNotNull, ne, or, sql } from "drizzle-o
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { comments, leads, modActions, posts, reports, spaces, users } from "@/db/schema";
+import { comments, leadReviews, leads, modActions, posts, reports, spaces, users, type ReportTarget } from "@/db/schema";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
+import { LeadReviewQueue } from "@/components/mod/LeadReviewQueue";
 import { ReportDecision, UserDiscipline } from "@/components/mod/ModActions";
 import { ProjectModeration } from "@/components/portfolio/ProjectModeration";
 import { ReportedPostEvidence } from "@/components/mod/ReportedPostEvidence";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { Avatar } from "@/components/primitives";
 import { getCurrentUser, isSiteStaff, isSuspended } from "@/lib/auth";
+import { isReviewParticipant, listLeadReviewQueue } from "@/lib/lead-reviews";
+import { REVIEW_VISIBILITY_LABELS } from "@/lib/lead-review-input";
 import { listHiddenProjectsForReview } from "@/lib/portfolio";
 import { REPORT_REASON_LABEL } from "@/lib/constants";
 import { routes, timeAgo } from "@/lib/utils";
@@ -23,7 +26,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
   const { status: statusParam } = await searchParams;
   const status = statusParam === "approved" || statusParam === "dismissed" ? statusParam : "pending";
 
-  const [rows, counts, restricted, recentActions, submissions, hiddenProjects] = await Promise.all([
+  const [rows, counts, restricted, recentActions, submissions, hiddenProjects, pendingReviews, hiddenReviews] = await Promise.all([
     db
       .select({ report: reports, reporter: { username: users.username }, space: { slug: spaces.slug } })
       .from(reports)
@@ -40,13 +43,19 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
       .where(and(eq(leads.isRemoved, false), or(eq(leads.publicationStatus, "pending_review"), isNotNull(leads.reviewedAt))))
       .orderBy(desc(sql`${eq(leads.publicationStatus, "pending_review")} and ${ne(leads.status, "closed")}`), desc(leads.createdAt), desc(leads.id)).limit(50),
     listHiddenProjectsForReview(user.id),
+    listLeadReviewQueue("pending_review"),
+    listLeadReviewQueue("hidden"),
   ]);
 
-  const ids = (t: "post" | "comment" | "lead") => rows.filter((r) => r.report.targetType === t).map((r) => r.report.targetId);
-  const [postRows, commentRows, leadRows] = await Promise.all([
+  const ids = (t: ReportTarget) => rows.filter((r) => r.report.targetType === t).map((r) => r.report.targetId);
+  const [postRows, commentRows, leadRows, reviewRows] = await Promise.all([
     ids("post").length ? db.select({ id: posts.id, title: posts.title, slug: posts.slug, authorId: posts.authorId, isRemoved: posts.isRemoved, spaceSlug: spaces.slug }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(inArray(posts.id, ids("post"))) : Promise.resolve([]),
     ids("comment").length ? db.select({ id: comments.id, body: comments.body, postId: comments.postId, authorId: comments.authorId, isRemoved: comments.isRemoved }).from(comments).where(inArray(comments.id, ids("comment"))) : Promise.resolve([]),
     ids("lead").length ? db.select({ id: leads.id, title: leads.title, authorId: leads.authorId, isRemoved: leads.isRemoved }).from(leads).where(inArray(leads.id, ids("lead"))) : Promise.resolve([]),
+    ids("lead_review").length ? db.select({
+      id: leadReviews.id, rating: leadReviews.rating, testimonial: leadReviews.testimonial, visibility: leadReviews.visibility,
+      reviewerId: leadReviews.reviewerId, recipientId: leadReviews.recipientId, reviewer: users.username,
+    }).from(leadReviews).innerJoin(users, eq(users.id, leadReviews.reviewerId)).where(inArray(leadReviews.id, ids("lead_review"))) : Promise.resolve([]),
   ]);
   const authorIds = [...new Set([...postRows, ...commentRows, ...leadRows].map((r) => r.authorId))];
   const authors = authorIds.length ? await db.select({ id: users.id, username: users.username, isBanned: users.isBanned, isVerified: users.isVerified, warningCount: users.warningCount }).from(users).where(inArray(users.id, authorIds)) : [];
@@ -54,6 +63,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
   const postMap = new Map(postRows.map((p) => [p.id, p]));
   const commentMap = new Map(commentRows.map((c) => [c.id, c]));
   const leadMap = new Map(leadRows.map((l) => [l.id, l]));
+  const reviewMap = new Map(reviewRows.map((r) => [r.id, r]));
   const countMap = new Map(counts.map((c) => [c.status, c.c]));
 
   return (
@@ -137,6 +147,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
           </ul>
         ) : <p className="mt-3 text-[13px] text-ink-3">No hidden projects to review.</p>}
       </section>
+      <LeadReviewQueue pending={pendingReviews} hidden={hiddenReviews} moderatorId={user.id} />
       <h2 className="display px-4 pt-4 text-[17px] sm:px-6">Reports</h2>
       <div className="hairline-b flex items-center gap-1 px-4 py-2.5">
         {(["pending", "approved", "dismissed"] as const).map((s) => (
@@ -156,6 +167,8 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
           const post = r.targetType === "post" ? postMap.get(r.targetId) : undefined;
           const comment = r.targetType === "comment" ? commentMap.get(r.targetId) : undefined;
           const lead = r.targetType === "lead" ? leadMap.get(r.targetId) : undefined;
+          const review = r.targetType === "lead_review" ? reviewMap.get(r.targetId) : undefined;
+          const conflicted = review && isReviewParticipant(user.id, review);
           const authorId = post?.authorId ?? comment?.authorId ?? lead?.authorId;
           const author = authorId ? authorMap.get(authorId) : undefined;
           const removed = post?.isRemoved ?? comment?.isRemoved ?? lead?.isRemoved ?? false;
@@ -163,12 +176,13 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
             <li key={r.id} className="ledger-row px-4 py-4">
               <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-3">
                 <span className={`tag ${r.reason === "automated_filter" ? "tag-gold" : "tag-ember"}`}>{REPORT_REASON_LABEL[r.reason]}</span>
-                <span className="tag">{r.targetType}</span>
+                <span className="tag">{r.targetType === "lead_review" ? "review" : r.targetType}</span>
                 {space?.slug && <span className="num">b/{space.slug}</span>}
                 <span className="num">#{r.id}</span>
                 <span>by {reporter ? `f/${reporter.username}` : "auto-filter"}</span>
                 <span className="num">{timeAgo(r.createdAt)}</span>
                 {removed && <span className="tag tag-danger">removed</span>}
+                {review && <span className="tag">{REVIEW_VISIBILITY_LABELS[review.visibility]}</span>}
               </div>
               <p className="mt-1.5 text-[14px] font-medium">
                 {post ? (
@@ -183,14 +197,18 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
                   <Link href={routes.leadSubmission(lead.id)} className="hover:underline">
                     {lead.title}
                   </Link>
+                ) : review ? (
+                  <span>Review #{review.id} by f/{review.reviewer} · <span className="num">{review.rating} / 5</span></span>
                 ) : (
                   <span className="text-ink-3">Target no longer exists</span>
                 )}
               </p>
-              {r.details && <p className="mt-1 text-[12.5px] text-ink-2">{r.details}</p>}
+              {review && <p className="mt-1.5 whitespace-pre-wrap text-[13px] text-ink-2 [overflow-wrap:anywhere]">{review.testimonial}</p>}
+              {r.details && <p className="mt-1 text-[12.5px] text-ink-2 [overflow-wrap:anywhere]">{r.details}</p>}
               {r.targetType === "post" && <ReportedPostEvidence snapshot={r.postSnapshot} />}
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                {status === "pending" && <ReportDecision reportId={r.id} />}
+                {status === "pending" && (conflicted ? <p className="text-[12px] text-ink-3">Another moderator must handle this report.</p>
+                  : <ReportDecision reportId={r.id} review={r.targetType === "lead_review"} />)}
                 {author && (
                   <div className="flex flex-wrap items-center gap-2 border-l border-line pl-4">
                     <span className="num text-[11.5px] text-ink-3">

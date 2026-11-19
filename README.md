@@ -90,6 +90,7 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 | `npm run test:db -- --profiles-only` | Verify adaptive profiles and privacy on an upgraded disposable database |
 | `npm run test:db -- --projects-only` | Verify portfolio privacy, cover handling, moderation, and ordering on disposable services |
 | `npm run test:db -- --lead-discovery-only` | Verify lead filtering, pagination, private saves, and the Phase 5 upgrade |
+| `npm run test:db -- --lead-reviews-only` | Verify completed-award reviews, moderation, and the Phase 6 upgrade |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
 | `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
 | `npm run db:prune-email` | Scrub expired intake content and prune receipts, send reservations and sessions on the explicitly configured database |
