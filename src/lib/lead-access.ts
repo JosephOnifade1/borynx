@@ -1,6 +1,6 @@
-import { and, eq, exists, gt, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, exists, gt, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
-import { leads, spaces, type Lead } from "@/db/schema";
+import { leadBids, leads, spaces, type Lead } from "@/db/schema";
 import { HttpError } from "./errors";
 import { getLeadEngagement } from "./lead-engagement";
 
@@ -26,6 +26,17 @@ export const openPublicLead = and(
   publicLead, eq(leads.status, "open"), eq(leads.awardNeedsReview, false),
   isNull(leads.acceptedBidId), isNull(leads.assignedUserId),
   or(isNull(leads.deadlineAt), gt(leads.deadlineAt, sql`now()`)),
+)!;
+
+// The SQL equivalent of matchesLeadAward. Keep the canonical pointers, bid ownership,
+// and accepted flag together; a closed listing or a stray accepted flag alone is not evidence.
+export const matchingLeadAward = and(eq(leads.awardNeedsReview, false),
+  eq(leadBids.id, leads.acceptedBidId), eq(leadBids.leadId, leads.id), eq(leadBids.userId, leads.assignedUserId),
+  ne(leadBids.userId, leads.authorId), eq(leadBids.isAccepted, true),
+)!;
+export const explicitlyCompletedLead = and(eq(leads.status, "completed"), isNotNull(leads.completedAt))!;
+export const recordedLeadCompletion = and(explicitlyCompletedLead,
+  exists(db.select({ id: leadBids.id }).from(leadBids).where(matchingLeadAward)),
 )!;
 
 export function leadDetailAccess(userId: number | undefined, siteReviewer: boolean) {

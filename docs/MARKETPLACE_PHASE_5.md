@@ -25,4 +25,4 @@ npm test -- src/lib/__tests__/lead-discovery.test.ts
 npm run typecheck && npm run lint && npm run build
 ```
 
-The disposable suite rehearses a fresh schema and the `0010` → `0011` upgrade, then checks cross-account reads and writes, legacy budgets, inclusive filters, alias handling, results past 400, same-timestamp paging, visibility changes, and existing thread bookmarks. See [Phase 6](./RECOMMENDATIONS_IMPLEMENTATION_PLAN.md#phase-6--verified-engagement-reviews) for the separate reviews follow-up.
+The disposable suite rehearses a fresh schema and the `0010` → `0011` upgrade, then checks cross-account reads and writes, legacy budgets, inclusive filters, alias handling, results past 400, same-timestamp paging, visibility changes, and existing thread bookmarks. See [Phase 6 engagement reviews](./MARKETPLACE_PHASE_6.md) for reviews on completed leads.

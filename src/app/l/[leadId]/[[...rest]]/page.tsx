@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { leadBids, leads, reports, spaces, users, votes } from "@/db/schema";
 import { ShareButton, VoteRail } from "@/components/feed/controls";
 import { BidForm } from "@/components/leads/BidForm";
+import { BuyerReview } from "@/components/leads/BuyerReview";
 import { LeadComposer } from "@/components/leads/LeadComposer";
 import { LeadEngagementBadge } from "@/components/leads/LeadEngagementBadge";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
@@ -23,6 +24,7 @@ import { getCurrentUser, isSiteStaff, isSuspended, restrictionMessage } from "@/
 import { leadDetailAccess, parseLeadId, publicLead } from "@/lib/lead-access";
 import { canSelectBid, getLeadEngagement, matchesLeadAward } from "@/lib/lead-engagement";
 import { LEAD_SKILLS } from "@/lib/lead-input";
+import { getBuyerReviewSlot } from "@/lib/lead-reviews";
 import { isLeadSaved } from "@/lib/lead-saves";
 import { LEAD_KIND_LABEL, leadBudgetUnitLabel } from "@/lib/constants";
 import { formatBudget, routes, timeAgo } from "@/lib/utils";
@@ -134,7 +136,9 @@ export default async function LeadPage({ params }: { params: Params }) {
   const canonical = routes.lead(lead.id, lead.slug);
   if ((rest?.[0] ?? "") !== lead.slug || (rest?.length ?? 0) > 1) permanentRedirect(canonical);
 
-  const [saved, vote, pitches] = await Promise.all([
+  const suspended = user ? isSuspended(user) : false;
+  const canManage = isOwner && !suspended;
+  const [saved, vote, pitches, reviewSlot] = await Promise.all([
     user ? isLeadSaved(user.id, lead.id) : false,
     user ? db.select({ value: votes.value }).from(votes).where(and(eq(votes.userId, user.id), eq(votes.targetType, "lead"), eq(votes.targetId, lead.id))).limit(1) : Promise.resolve([]),
     // Scope the query itself: the poster sees all, a bidder sees only their own, and staff
@@ -153,11 +157,10 @@ export default async function LeadPage({ params }: { params: Params }) {
     }).from(leadBids).innerJoin(users, eq(users.id, leadBids.userId))
       .where(and(eq(leadBids.leadId, lead.id), isOwner ? undefined : eq(leadBids.userId, user.id)))
       .orderBy(desc(leadBids.isAccepted), desc(leadBids.createdAt), desc(leadBids.id)) : Promise.resolve([]),
+    canManage && user && lead.status === "completed" ? getBuyerReviewSlot(lead.id, user.id) : undefined,
   ]);
 
   const engagement = getLeadEngagement(lead);
-  const suspended = user ? isSuspended(user) : false;
-  const canManage = isOwner && !suspended;
   const canAward = canManage && canSelectBid(lead);
   const hasWinner = pitches.some((pitch) => matchesLeadAward(lead, pitch));
   const canFinish = canManage && lead.status === "awarded" && hasWinner;
@@ -264,6 +267,8 @@ export default async function LeadPage({ params }: { params: Params }) {
           </div>
         </div>
       </article>
+
+      {reviewSlot && <BuyerReview key={lead.id} leadId={lead.id} {...reviewSlot} />}
 
       <section id="bid" className="scroll-mt-24 space-y-4 border-t border-line px-4 py-5 sm:px-6" aria-label={isOwner ? "Pitches received" : "Pitches"}>
         {isOwner ? (

@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { comments, follows, posts, spaces } from "@/db/schema";
 import { FollowButton } from "@/components/FollowButton";
 import { EditProfileModal } from "@/components/profile/EditProfileModal";
+import { ProfileReviews } from "@/components/profile/ProfileReviews";
 import { ProfileSignals } from "@/components/profile/ProfileSignals";
 import { PostFeed } from "@/components/feed/PostFeed";
 import { LeadFeed } from "@/components/leads/LeadFeed";
@@ -19,6 +20,8 @@ import { activePost, postSpaceAccess } from "@/lib/post-access";
 import { toEditableProfile, toProfilePreferences } from "@/lib/profile-input";
 import { countPublicProjects, listPublicProjects } from "@/lib/portfolio";
 import { getPublicHiringCounts } from "@/lib/profile-leads";
+import { parseReviewCursor, type ReviewCursor } from "@/lib/lead-review-input";
+import { countPublicLeadReviews, listPublicLeadReviews } from "@/lib/lead-reviews";
 import { readLeadPageFilters } from "@/lib/lead-discovery";
 import { listLeads } from "@/lib/lead-feed";
 import { listPosts, resolveUser } from "@/lib/queries";
@@ -28,9 +31,9 @@ import type { FeedPage, FeedPost } from "@/lib/types";
 import { cn, routes, timeAgo } from "@/lib/utils";
 
 type Params = Promise<{ username: string }>;
-type Tab = "posts" | "solved" | "leads" | "projects";
+type Tab = "posts" | "solved" | "leads" | "projects" | "reviews";
 
-const TAB_LABELS: Record<Tab, string> = { posts: "Threads", solved: "Solved", leads: "Leads", projects: "Projects" };
+const TAB_LABELS: Record<Tab, string> = { posts: "Threads", solved: "Solved", leads: "Leads", projects: "Projects", reviews: "Reviews" };
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   try {
@@ -54,13 +57,21 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
   const mode = isRankMode(sort) ? sort : "new";
   const resolved = await resolveUser(username);
   if (!resolved) notFound();
-  if (!resolved.canonical) permanentRedirect(tabParam === "projects" ? routes.profileProjects(resolved.user.username) : routes.profile(resolved.user.username));
+  let reviewCursor: ReviewCursor | undefined;
+  let invalidReviewCursor = false;
+  if (tabParam === "reviews") {
+    try { reviewCursor = parseReviewCursor(search.cursor); } catch { invalidReviewCursor = true; }
+  }
   const profile = resolved.user;
+  if (!resolved.canonical) {
+    if (tabParam === "reviews") permanentRedirect(routes.profileReviews(profile.username, reviewCursor ? `${reviewCursor.time}:${reviewCursor.id}` : undefined));
+    permanentRedirect(tabParam === "projects" ? routes.profileProjects(profile.username) : routes.profile(profile.username));
+  }
   const viewer = await getCurrentUser();
   const isSelf = viewer?.id === profile.id;
   const staff = viewer ? isSiteStaff(viewer) : false;
 
-  const [badgeList, [threads], [solvedThreads], [solutions], hiring, [followers], isFollowingRow, projectItems, projectCount] = await Promise.all([
+  const [badgeList, [threads], [solvedThreads], [solutions], hiring, [followers], isFollowingRow, projectItems, projectCount, reviewPage, reviewCount] = await Promise.all([
     getUserBadges(profile.id),
     db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, profile.id), activePost, postSpaceAccess(viewer))),
     db.select({ c: count() }).from(posts).innerJoin(spaces, eq(spaces.id, posts.spaceId)).where(and(eq(posts.authorId, profile.id), activePost, postSpaceAccess(viewer), eq(posts.isSolved, true))),
@@ -77,12 +88,17 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
       : Promise.resolve([]),
     tabParam === "projects" ? listPublicProjects(profile.id) : null,
     tabParam === "projects" ? null : countPublicProjects(profile.id),
+    tabParam === "reviews" ? listPublicLeadReviews(profile.id, reviewCursor) : null,
+    tabParam === "reviews" ? null : countPublicLeadReviews(profile.id),
   ]);
 
   const hiringFocus = !profile.availableForWork && (profile.lookingToHire || hiring.accepting > 0);
-  const tabs: Tab[] = hiringFocus ? ["leads", "posts", "solved", "projects"] : ["posts", "projects", "solved", "leads"];
-  const tab: Tab = tabParam === "posts" || tabParam === "solved" || tabParam === "leads" || tabParam === "projects" ? tabParam : tabs[0];
-  const counts: Record<Tab, number> = { posts: threads.c, solved: solvedThreads.c, leads: hiring.published, projects: projectItems?.length ?? projectCount ?? 0 };
+  const tabs: Tab[] = hiringFocus ? ["leads", "posts", "solved", "projects", "reviews"] : ["posts", "projects", "reviews", "solved", "leads"];
+  const tab = tabs.find((id) => id === tabParam) ?? tabs[0];
+  const counts: Record<Tab, number> = {
+    posts: threads.c, solved: solvedThreads.c, leads: hiring.published, projects: projectItems?.length ?? projectCount ?? 0,
+    reviews: reviewPage?.count ?? reviewCount ?? 0,
+  };
   const leadDiscovery = tab === "leads" ? readLeadPageFilters(search) : null;
   const viewerId = viewer?.id ?? null;
   const leadPage = leadDiscovery && !leadDiscovery.filterError ? await listLeads({ filters: leadDiscovery.filters, authorId: profile.id, viewerId }) : null;
@@ -205,6 +221,7 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
             <Link
               key={id}
               href={id === "posts" && !hiringFocus ? base : `${base}?tab=${id}`}
+              prefetch={id === "reviews" ? false : undefined}
               aria-current={active ? "page" : undefined}
               className={cn("relative flex h-10 items-center gap-1.5 px-2 text-[13px] font-semibold transition-colors sm:px-3", active ? "text-ink" : "text-ink-3 hover:text-ink")}
             >
@@ -218,6 +235,9 @@ export default async function ProfilePage({ params, searchParams }: { params: Pa
 
       {projectItems ? (
         <ProfileProjects projects={projectItems} owner={isSelf} canModerate={Boolean(viewer && staff && !isSelf && !isSuspended(viewer))} />
+      ) : reviewPage ? (
+        <ProfileReviews page={reviewPage} username={profile.username} staffUsername={viewer && staff && !isSuspended(viewer) ? viewer.username : undefined}
+          paged={Boolean(reviewCursor)} invalidCursor={invalidReviewCursor} />
       ) : leadDiscovery ? (
         <LeadFeed author={profile.username} initialPage={leadPage} viewerId={viewerId} {...leadDiscovery} />
       ) : (

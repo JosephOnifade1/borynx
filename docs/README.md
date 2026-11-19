@@ -35,6 +35,7 @@ This directory contains architectural specifications, implementation blueprints,
 - [Phase 4 adaptive profiles](./MARKETPLACE_PHASE_4.md) — Independent hiring and availability settings and public lead counts.
 - [Phase 4 portfolio projects](./MARKETPLACE_PHASE_4_PROJECTS.md) — Owner drafts, ordered public work samples, gated covers, and moderation.
 - [Phase 5 lead discovery and saves](./MARKETPLACE_PHASE_5.md) — Shareable budget and skill filters, consistent paging, and private lead bookmarks.
+- [Phase 6 engagement reviews](./MARKETPLACE_PHASE_6.md) — One buyer review per public completed award, profile ratings, and site-wide moderation.
 - [Local database runbook](./LOCAL_DATABASE.md) — Phase 0 setup, migration checks, and demo sign-in safeguards.
 
 ---

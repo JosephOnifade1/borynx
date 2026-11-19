@@ -32,9 +32,9 @@ export function ReportModal() {
   }, [close, mutation.isPending]);
 
   return (
-    <Dialog open={Boolean(target)} onClose={onClose} title="Report content" description={target ? `Flagging ${target.type} · “${target.label.slice(0, 70)}${target.label.length > 70 ? "…" : ""}”` : undefined}>
+    <Dialog open={Boolean(target)} onClose={onClose} title="Report content" description={target ? `Flagging ${target.type === "lead_review" ? "review" : target.type} · “${target.label.slice(0, 70)}${target.label.length > 70 ? "…" : ""}”` : undefined}>
       <form
-        className="px-5 py-4"
+        className="min-h-0 overflow-y-auto px-5 py-4"
         onSubmit={(e) => {
           e.preventDefault();
           if (target) mutation.mutate(target);
@@ -58,7 +58,7 @@ export function ReportModal() {
           <span className="eyebrow">Context (optional)</span>
           <textarea value={details} onChange={(e) => setDetails(e.target.value)} rows={3} maxLength={1000} className="field mt-1.5" placeholder="What should the moderator look at?" />
         </label>
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-[11.5px] text-ink-3">Reports are anonymous to the author. Abuse of reporting is itself moderated.</p>
           <div className="flex gap-2">
             <button type="button" className="btn" onClick={onClose} disabled={mutation.isPending}>
@@ -74,7 +74,7 @@ export function ReportModal() {
   );
 }
 
-/** Small trigger used across posts, comments, and leads. */
+/** Small trigger used across posts, comments, leads, and reviews. */
 export function ReportButton({ target, className }: { target: ReportTargetRef; className?: string }) {
   const user = useSession();
   const openReport = useUiStore((s) => s.openReport);
@@ -84,7 +84,7 @@ export function ReportButton({ target, className }: { target: ReportTargetRef; c
       type="button"
       className={cn("btn btn-ghost btn-sm text-ink-3", className)}
       onClick={() => (user ? openReport(target) : notify("Sign in to report content", "info"))}
-      aria-label={`Report this ${target.type}`}
+      aria-label={`Report this ${target.type === "lead_review" ? "review" : target.type}`}
     >
       <Flag size={12} /> Report
     </button>
