@@ -11,6 +11,7 @@ import { BidForm } from "@/components/leads/BidForm";
 import { BuyerReview } from "@/components/leads/BuyerReview";
 import { LeadComposer } from "@/components/leads/LeadComposer";
 import { LeadEngagementBadge } from "@/components/leads/LeadEngagementBadge";
+import { LeadKickoff } from "@/components/leads/LeadKickoff";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
 import { LeadSaveButton } from "@/components/leads/LeadSaveButton";
 import { LeadReviewControls, WithdrawLeadButton } from "@/components/leads/LeadReviewControls";
@@ -24,12 +25,13 @@ import { getCurrentUser, isSiteStaff, isSuspended, restrictionMessage } from "@/
 import { leadDetailAccess, parseLeadId, publicLead } from "@/lib/lead-access";
 import { canSelectBid, getLeadEngagement, matchesLeadAward } from "@/lib/lead-engagement";
 import { LEAD_SKILLS } from "@/lib/lead-input";
+import { getLeadKickoff } from "@/lib/lead-kickoff";
 import { getBuyerReviewSlot } from "@/lib/lead-reviews";
 import { isLeadSaved } from "@/lib/lead-saves";
 import { LEAD_KIND_LABEL, leadBudgetUnitLabel } from "@/lib/constants";
 import { formatBudget, routes, timeAgo } from "@/lib/utils";
 
-// Sessions determine which private pitches, if any, are in the response.
+// Sessions determine which private pitches or kickoff details, if any, are in the response.
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ leadId: string; rest?: string[] }>;
@@ -138,7 +140,7 @@ export default async function LeadPage({ params }: { params: Params }) {
 
   const suspended = user ? isSuspended(user) : false;
   const canManage = isOwner && !suspended;
-  const [saved, vote, pitches, reviewSlot] = await Promise.all([
+  const [saved, vote, pitches, reviewSlot, kickoff] = await Promise.all([
     user ? isLeadSaved(user.id, lead.id) : false,
     user ? db.select({ value: votes.value }).from(votes).where(and(eq(votes.userId, user.id), eq(votes.targetType, "lead"), eq(votes.targetId, lead.id))).limit(1) : Promise.resolve([]),
     // Scope the query itself: the poster sees all, a bidder sees only their own, and staff
@@ -158,6 +160,7 @@ export default async function LeadPage({ params }: { params: Params }) {
       .where(and(eq(leadBids.leadId, lead.id), isOwner ? undefined : eq(leadBids.userId, user.id)))
       .orderBy(desc(leadBids.isAccepted), desc(leadBids.createdAt), desc(leadBids.id)) : Promise.resolve([]),
     canManage && user && lead.status === "completed" ? getBuyerReviewSlot(lead.id, user.id) : undefined,
+    user && !suspended && lead.status === "awarded" && (isOwner || lead.assignedUserId === user.id) ? getLeadKickoff(lead.id, user.id) : null,
   ]);
 
   const engagement = getLeadEngagement(lead);
@@ -268,6 +271,7 @@ export default async function LeadPage({ params }: { params: Params }) {
         </div>
       </article>
 
+      {kickoff && <LeadKickoff key={`${lead.id}:${user?.id}`} leadId={lead.id} kickoff={kickoff} />}
       {reviewSlot && <BuyerReview key={lead.id} leadId={lead.id} {...reviewSlot} />}
 
       <section id="bid" className="scroll-mt-24 space-y-4 border-t border-line px-4 py-5 sm:px-6" aria-label={isOwner ? "Pitches received" : "Pitches"}>
@@ -292,6 +296,7 @@ export default async function LeadPage({ params }: { params: Params }) {
                     <p className="mt-2 whitespace-pre-wrap break-words text-[13px] text-ink-2">{pitch.message}</p>
                     <div className="mt-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <Link href={routes.profileProjects(pitch.username)} className="text-[13px] font-medium text-verdigris hover:underline">View projects</Link>
+                      {kickoff && matchesLeadAward(lead, pitch) && <a href="#kickoff" className="text-[13px] font-medium text-ember hover:underline">{kickoff.details ? "View private kickoff" : "Send kickoff details"}</a>}
                       {canAward && pitch.userId !== lead.authorId && <AwardBidButton leadId={lead.id} bidId={pitch.id} bidderName={pitch.displayName} />}
                     </div>
                   </li>
@@ -311,6 +316,7 @@ export default async function LeadPage({ params }: { params: Params }) {
               </div>
               <p className="mt-2 whitespace-pre-wrap break-words text-[13px] text-ink-2">{pitches[0].message}</p>
             </div>
+            {kickoff && <a href="#kickoff" className="text-[13px] font-medium text-ember hover:underline">Go to private kickoff</a>}
             <p className="text-[12.5px] text-ink-3">Only you and the poster can see your pitch.</p>
           </>
         ) : (

@@ -168,6 +168,10 @@ See the [Phase 3 staging runbook](MARKETPLACE_PHASE_3.md) for the implementation
 
 **Acceptance.** Only the poster of an actual completed award can create one eligible review. Reject invalid stars, other actors, legacy `closed`, and cancelled cases. Two concurrent submissions produce one row. Removing or holding a review updates the profile average/count and direct API together. Check keyboard rating controls and narrow screens.
 
+## Follow-up — Private kickoff while Awarded
+
+The [private kickoff](./MARKETPLACE_KICKOFF.md) adds a buyer-to-winner handoff after selection and before completion. No public states or payment signals are added. Separately, the [buyer-paid shortlist pilot](./MONETIZATION_PILOT.md) describes how to test revenue without gating access to the marketplace.
+
 ## Rollout boundaries and what not to build yet
 
 - Keep schema changes additive and rebuild fixtures before changing endpoints/UI. Rehearse fresh and existing-schema DB upgrades; keep legacy ownership and visibility. If an external rollout needs rollback, pause new writes or sends while still enforcing secure sign-in and the publication gate; never roll back to working demo credentials or exposed pending rows.

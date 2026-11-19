@@ -10,7 +10,8 @@ Run `npm ci` and `npm run dev:demo`. Use separate browser profiles or Playwright
 2. As **Demo Reviewer**, open `/mod/queue`, find the brief under **Lead submissions**, and publish it. Copy the public listing URL.
 3. As **Demo Bidder A** and **Demo Bidder B**, open that URL and send different pitches. The quote is a whole amount in the listing's currency and unit. Each bidder sees only their own pitch; a signed-out visitor, **Demo Observer**, and the reviewer see neither. The public board shows status and total bid count, not individual quotes or pitches.
 4. As **Demo Buyer**, open the same listing. Under **Pitches received**, choose **Award lead** for one bidder and confirm. The selected pitch receives a winner label and that bidder receives an award notice in the bell and `/notifications`. The lead now says **Awarded** and cannot accept new pitches or another winner.
-5. Use **Mark complete** and confirm. The board and detail page now say **Completed**. This means the buyer recorded the work as complete, not that Borynx verified payment. On a separate brief, try **Close without hire** before selecting a pitch, or **Cancel engagement** after an award. Both are terminal; cancellation preserves the original award.
+5. While the pitch is winning, the buyer can [send private kickoff details](./MARKETPLACE_KICKOFF.md) and the winner can acknowledge them. Neither action is required to record an outcome.
+6. Use **Mark complete** and confirm. The board and detail page now say **Completed**. This means the buyer recorded the work as complete, not that Borynx verified payment. On a separate brief, try **Close without hire** before selecting a pitch, or **Cancel engagement** after an award. Both are terminal; cancellation preserves the original award.
 
 ## Write and visibility rules
 

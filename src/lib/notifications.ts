@@ -1,7 +1,7 @@
 import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { leads, notifications, users, type NewNotification, type Notification, type NotificationType } from "@/db/schema";
-import { publicLead } from "./lead-access";
+import { leadBids, leadKickoffs, leads, notifications, users, type Notification, type NotificationType } from "@/db/schema";
+import { activeLeadAward, matchingLeadAward, matchingLeadKickoff, publicLead } from "./lead-access";
 import type { AuthorSummary } from "./types";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -51,7 +51,18 @@ function visibleNotification(userId: number) {
     eq(leads.id, notifications.entityId),
     or(publicLead, and(eq(leads.isRemoved, false), eq(leads.authorId, userId))),
   )));
-  return and(eq(notifications.userId, userId), or(isNull(notifications.entityType), ne(notifications.entityType, "lead"), visibleLead));
+  // A repaired award or a cascaded kickoff deletion can leave a generic notice behind.
+  // Never show it for a different award, or count it as unread once kickoff is unavailable.
+  const visibleKickoff = exists(db.select({ id: leads.id }).from(leads)
+    .innerJoin(leadBids, matchingLeadAward).innerJoin(leadKickoffs, matchingLeadKickoff)
+    .where(and(eq(notifications.entityType, "lead"), eq(leads.id, notifications.entityId), activeLeadAward, or(
+      and(eq(leadKickoffs.winnerId, userId), eq(leadKickoffs.buyerId, notifications.actorId)),
+      and(eq(leadKickoffs.buyerId, userId), eq(leadKickoffs.winnerId, notifications.actorId)),
+    ))));
+  return and(eq(notifications.userId, userId), or(
+    and(eq(notifications.type, "lead_kickoff"), visibleKickoff),
+    and(ne(notifications.type, "lead_kickoff"), or(isNull(notifications.entityType), ne(notifications.entityType, "lead"), visibleLead)),
+  ));
 }
 
 export async function getUnreadNotificationCount(userId: number, exec: Executor = db): Promise<number> {

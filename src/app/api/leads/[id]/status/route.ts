@@ -5,6 +5,7 @@ import { handler, readJson } from "@/lib/api";
 import { HttpError, requireActor } from "@/lib/auth";
 import { lockLead, parseLeadId, publicLead } from "@/lib/lead-access";
 import { canSelectBid, hasNoAward, matchesLeadAward, parseLeadAction } from "@/lib/lead-engagement";
+import { clearLeadKickoff } from "@/lib/lead-kickoff";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export const PATCH = handler(async (req, { params }) => {
 
     const completedAt = action === "complete" ? new Date() : null;
     await tx.update(leads).set({ status: next, completedAt }).where(eq(leads.id, leadId));
+    await clearLeadKickoff(tx, leadId);
     return statusResponse(next, completedAt);
   });
 });
