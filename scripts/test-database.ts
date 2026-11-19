@@ -299,7 +299,18 @@ async function checkDemoApp(url: string) {
     assert.equal((await jsonPost(`${origin}/api/auth/login`, { username: "non-demo-account", create: true })).status, 400);
     assert.equal((await jsonPost(`${origin}/api/leads`, {})).status, 401);
     assert.equal((await jsonPost(`${origin}/api/posts`, {})).status, 401);
-    console.log("PASS fresh app boot; five fictional roles, hashed sessions, preview transports, and guest write rejection");
+
+    const board = await fetch(`${origin}/api/leads`);
+    assert.equal(board.status, 200);
+    const { items } = await board.json() as { items: { slug: string; href: string }[] };
+    const billingLead = items.find((lead) => lead.slug === "build-a-usage-metering-billing-service-go-or-typescript-postgres-stripe");
+    assert.ok(billingLead, "A fresh disposable demo must publish its sample billing lead");
+    const detail = await fetch(new URL(`${billingLead.href}#bid`, origin), { redirect: "manual" });
+    assert.equal(detail.status, 200, "The sample lead's Quick apply link must open the lead");
+    const html = await detail.text();
+    assert.match(html, /<h1[^>]*>Build a usage-metering &amp; billing service/);
+    assert.match(html, /id="bid"/);
+    console.log("PASS fresh demo boot; sample lead permalink, five fictional roles, hashed sessions, preview transports, and guest write rejection");
     await runAppTests(["src/lib/__tests__/post-author.integration.test.ts", "src/lib/__tests__/lead-publication.integration.test.ts"], {
       BORYNX_POST_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_ORIGIN: origin, BORYNX_LEAD_TEST_DATABASE_URL: url,
     });

@@ -29,7 +29,7 @@ import { getLeadKickoff } from "@/lib/lead-kickoff";
 import { getBuyerReviewSlot } from "@/lib/lead-reviews";
 import { isLeadSaved } from "@/lib/lead-saves";
 import { LEAD_KIND_LABEL, leadBudgetUnitLabel } from "@/lib/constants";
-import { formatBudget, routes, timeAgo } from "@/lib/utils";
+import { formatBudget, leadSlugSegment, routes, timeAgo } from "@/lib/utils";
 
 // Sessions determine which private pitches or kickoff details, if any, are in the response.
 export const dynamic = "force-dynamic";
@@ -129,14 +129,23 @@ async function PrivateLead({ row }: { row: VisibleLead }) {
 }
 
 /** Only public listings get a canonical slug redirect or title in metadata. */
-export default async function LeadPage({ params }: { params: Params }) {
+export default async function LeadPage({ params, searchParams }: {
+  params: Params;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { leadId, rest } = await params;
   const row = await loadLead(leadId);
   if (!row) notFound();
   if (!row.isPublic) return <PrivateLead row={row} />;
   const { lead, author, space, user, isOwner } = row;
   const canonical = routes.lead(lead.id, lead.slug);
-  if ((rest?.[0] ?? "") !== lead.slug || (rest?.length ?? 0) > 1) permanentRedirect(canonical);
+  if (leadId !== String(lead.id) || rest?.length !== 1 || rest[0] !== leadSlugSegment(lead.slug)) {
+    const query = new URLSearchParams();
+    for (const [key, values] of Object.entries(await searchParams)) {
+      for (const value of typeof values === "string" ? [values] : values ?? []) query.append(key, value);
+    }
+    permanentRedirect(query.size ? `${canonical}?${query}` : canonical);
+  }
 
   const suspended = user ? isSuspended(user) : false;
   const canManage = isOwner && !suspended;

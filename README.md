@@ -43,11 +43,9 @@ npm ci
 
 ### 2. Start local development
 
-> **Demo isolation caveat:** The current `main` baseline regressed demo sign-in isolation (`65fc188`). Until fixed, use only disposable data on loopback; don't proxy or deploy demo servers. See the [local database runbook](./docs/LOCAL_DATABASE.md).
+**Already have demo accounts?** Keep your existing local PostgreSQL `DATABASE_URL` in `.env.local` (any test database name is fine). Run `npm run dev`, then open [http://127.0.0.1:3000/login](http://127.0.0.1:3000/login) and choose or type your handle. No demo flags are needed. If you copied an older `.env.example` that sets `BORYNX_DEMO_MODE=0`, remove that line to use the default; `0` remains an explicit opt-out. Your account ID and role stay the same, and startup does not add sample accounts, posts, or leads. Pending migrations can still apply, so back up your local database first. Use a loopback connection without URL options, use test data only, and don't proxy this server.
 
-**Already have demo accounts?** Keep your existing local PostgreSQL `DATABASE_URL` in `.env.local` (any test database name is fine). Run `npm run dev`, then open [http://127.0.0.1:3000/login](http://127.0.0.1:3000/login) and choose or type your handle. No demo flags are needed. If you copied an older `.env.example` that sets `BORYNX_DEMO_MODE=0`, remove that line to use the default; `0` remains an explicit opt-out. Your account ID and role stay the same, and startup does not add fixture accounts or posts. Pending migrations can still apply, so back up your local database first. Use a loopback connection without URL options, use test data only, and don't proxy this server.
-
-**Starting without a test database?** Run `npm run dev:demo` and open the same `/login` address. Choose the fictional **Demo Buyer**, either **Demo Bidder**, **Demo Reviewer**, or **Demo Observer**. This command ignores your `DATABASE_URL`, starts its own local PostgreSQL, and discards its data on normal shutdown. Run as a normal user, not root. The embedded database requires a supported native binary (verified on Linux x64).
+**Starting without a test database?** Run `npm run dev:demo` and open the same `/login` address. Choose the fictional **Demo Buyer**, either **Demo Bidder**, **Demo Reviewer**, or **Demo Observer**. This command ignores your `DATABASE_URL`, starts its own local PostgreSQL with sample content (including the leads at `/l`), and discards its data on normal shutdown. Run as a normal user, not root. The embedded database requires a supported native binary (verified on Linux x64).
 
 Both commands keep email sign-in off. Demo sign-in is unavailable in production.
 

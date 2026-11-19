@@ -2,7 +2,7 @@
 
 ## Try it locally
 
-Use disposable loopback data. See the [local database runbook](./LOCAL_DATABASE.md) for the inherited demo sign-in regression and rollout boundary. This phase does not change auth, send email, or require a hosted database.
+Use disposable loopback data. See the [local database runbook](./LOCAL_DATABASE.md) for demo setup and sign-in boundaries. This phase does not change auth, send email, or require a hosted database.
 
 1. Open **Leads → New → Filter leads**. Pick a currency and budget unit before entering a minimum, maximum, or both. Add up to six skills and choose **Apply filters**. A public lead matches if its budget touches or overlaps the requested range and it has **any** selected skill. Use **Accepting pitches** to exclude expired, closed, awarded, and other non-accepting leads.
 2. Copy or reload the filtered URL. **Load more leads** uses the same filters. **Clear filters** starts again with unfiltered New. **Hot** and **Best** are separate, unfiltered rankings of the 400 newest visible leads. They are not budget or skill search results.

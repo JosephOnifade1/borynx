@@ -26,4 +26,4 @@ npx vitest run src/lib/__tests__/lead-kickoff-input.test.ts
 npm run test:db -- --kickoff-only
 ```
 
-The database runner checks fresh and `0012` → `0013` migration paths, grants with permissive defaults, participant-only HTML, notification payloads and links, concurrent writes, and outcome/removal cleanup. Stop any existing Next development server in this checkout before running it. This feature has not been applied to a hosted database. Follow the [local database runbook](./LOCAL_DATABASE.md) and resolve the existing demo/startup regression before external rollout.
+The database runner checks fresh and `0012` → `0013` migration paths, grants with permissive defaults, participant-only HTML, notification payloads and links, concurrent writes, and outcome/removal cleanup. Stop any existing Next development server in this checkout before running it. This feature has not been applied to a hosted database. Follow the [local database runbook](./LOCAL_DATABASE.md) for local testing, and rehearse migrations and privacy checks on approved staging before external rollout.

@@ -2,8 +2,6 @@
 
 Phase 0 established the setup and safety checks; this runbook covers the journal through private award kickoff (`0013`). The checks below use fictional rows in disposable PostgreSQL only.
 
-> **Known baseline regression:** `65fc188` on `main` loosened demo host/database boundaries and broke the seeded-persona and opt-out checks. The intended boundaries below are not reliable on that baseline. Use only disposable loopback data, do not expose demo servers through a proxy, and fix demo isolation before a hosted rollout. Targeted suites such as `--lead-reviews-only` and `--kickoff-only` isolate their own loopback app and database.
-
 ## Quick setup
 
 1. Use Node 22.12+ within the 22.x line and npm 10 (`.nvmrc`: 22.22.3; tested with npm 10.9.8).
@@ -22,6 +20,12 @@ Phase 0 established the setup and safety checks; this runbook covers the journal
 - `npm run dev` binds to loopback for existing accounts and rejects a public hostname. Don't tunnel or proxy this server. The picker, new sessions, and cookie/header/bearer validation all require compatible local requests. Use `npm run dev:demo` for a disposable preview: it ignores the configured database and exposes only the five fictional persona sign-ins. Neither mode creates accounts through `/login`.
 - With `BORYNX_DEMO_MODE=0` under `npm run dev`, or under `next start` (production), demo sign-in returns `404`. Existing demo cookies, `x-bx-session`, and bearer tokens do not authenticate. No existing rows or sessions are purged. Verified email sign-in is off in local development and separately gated for approved staging; see the [Phase 3 staging runbook](./MARKETPLACE_PHASE_3.md).
 - The badge catalogue is application data and still loads with demo sign-in off. Normal `npm run dev` does not seed demo users, posts, or leads into your configured database; use `npm run dev:demo` for fixtures. `/api/health` returns `{ "ok": true }` or a `503` with `{ "ok": false }`; it does not publish database diagnostics. Detailed `/status` information is for demo mode only.
+
+### A local lead link shows 404
+
+Refresh `/l` and open the lead from that board after switching databases or launch modes. The numeric ID in a lead URL belongs to the database serving the app; an old demo link may not exist in your configured database. `#bid` only scrolls to the pitch section. Removed or unpublished leads still return 404 to viewers who can't access them.
+
+A fresh `npm run dev:demo` should log `seed inserted` and show sample leads, including **Build a usage-metering & billing service**. On older checkouts affected by `65fc188`, the launcher could log `seed disabled` and leave the sample board empty. Update the checkout and restart the disposable demo rather than seeding your existing database.
 
 ## Migration ledger
 
@@ -45,6 +49,6 @@ A fresh database can have an empty ledger. A database with untracked tables/enum
 | `npm run test:db -- --lead-discovery-only` | Verifies fresh and `0010` → `0011` migrations, exact budget and skill paging, and private bookmarks on disposable data. |
 | `npm run test:db -- --lead-reviews-only` | Rehearses fresh and `0011` → `0012` migrations, then checks completed-award reviews, public totals, and moderation over HTTP. |
 | `npm run test:db -- --kickoff-only` | Rehearses fresh and `0012` → `0013` migrations and tests private handoff, grants, concurrency, and cleanup over HTTP. |
-| `npm run test:db` | Runs the local dev regression, five-persona and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, `0007`, `0008`, `0009`, `0010`, `0011`, and `0012`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, lead-engagement, adaptive-profile, portfolio, lead-discovery, engagement-review, and private kickoff HTTP suites plus email staging with a local HTTPS provider double. The baseline demo regression currently prevents a full pass. |
+| `npm run test:db` | Runs the local dev regression, five-persona, sample lead and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, `0007`, `0008`, `0009`, `0010`, `0011`, and `0012`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, lead-engagement, adaptive-profile, portfolio, lead-discovery, engagement-review, and private kickoff HTTP suites plus email staging with a local HTTPS provider double. |
 
 `test:db` requires `openssl` for the throwaway TLS fixture and does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the HTTP integration cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.
