@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, Bell, Briefcase, CheckCheck, MessageSquare, Trophy, UserPlus } from "lucide-react";
+import { Award, Bell, Briefcase, CheckCheck, Handshake, MessageSquare, Trophy, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Avatar } from "@/components/primitives";
@@ -19,6 +19,7 @@ const TYPE_ICONS = {
   solution_accepted: Award,
   lead_bid: Briefcase,
   lead_bid_accepted: Trophy,
+  lead_kickoff: Handshake,
   lead_review_decision: Briefcase,
   karma_milestone: Award,
   user_follow: UserPlus,
@@ -29,6 +30,7 @@ const TYPE_TAGS = {
   solution_accepted: { label: "Solution", className: "tag tag-gold" },
   lead_bid: { label: "Lead Pitch", className: "tag tag-verdigris" },
   lead_bid_accepted: { label: "Lead Award", className: "tag tag-gold" },
+  lead_kickoff: { label: "Kickoff", className: "tag tag-verdigris" },
   lead_review_decision: { label: "Lead Review", className: "tag tag-gold" },
   karma_milestone: { label: "Milestone", className: "tag tag-gold" },
   user_follow: { label: "Follower", className: "tag tag-ember" },
@@ -161,6 +163,7 @@ export function NotificationsInbox({
 
                   <Link
                     href={n.href}
+                    prefetch={n.type === "lead_kickoff" || n.type === "lead_bid_accepted" ? false : undefined}
                     onClick={() => {
                       if (!n.isRead) markSingleMutation.mutate(n.id);
                     }}

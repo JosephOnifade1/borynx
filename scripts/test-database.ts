@@ -672,11 +672,66 @@ async function checkLeadReviewUpgrade(url: string, directory: string) {
   console.log("PASS 0011 → 0012 preserves leads, accepted bids, saves and reports without backfilling reviews; app-only grants and deletion policy verified");
 }
 
+async function checkKickoffUpgrade(url: string, directory: string) {
+  const previous = await copyJournalPrefix(directory, "engagement-reviews-migrations", 13);
+  await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, previous.folder), { applied: previous.count, available: previous.count });
+    for (const user of DEMO_PERSONAS) {
+      await pool.query("insert into users (username, display_name, headline, avatar_hue, role) values ($1, $2, $3, $4, $5)",
+        [user.username, user.displayName, user.headline, user.avatarHue, user.role]);
+    }
+    const { rows: [buyer, winner] } = await pool.query<{ id: number }>("select id from users where username in ('demo-buyer', 'demo-bidder-a') order by id");
+    const { rows: [active, finished] } = await pool.query<{ id: number }>(`insert into leads
+      (author_id, slug, title, description, category, publication_status, status, assigned_user_id, completed_at) values
+      ($1, 'kickoff-upgrade-award', 'Award predating kickoff', 'A retained fixture brief.', 'Software Engineering', 'published', 'awarded', $2, null),
+      ($1, 'kickoff-upgrade-review', 'Review predating kickoff', 'A retained fixture brief.', 'Software Engineering', 'published', 'completed', $2, '2026-03-18T08:55:00Z')
+      returning id`, [buyer.id, winner.id]);
+    const { rows: bids } = await pool.query(`insert into lead_bids (lead_id, user_id, amount, message, is_accepted)
+      values ($1, $3, 450, 'Private awarded pitch', true), ($2, $3, 650, 'Private completed pitch', true) returning *`, [active.id, finished.id, winner.id]);
+    for (const bid of bids) await pool.query("update leads set accepted_bid_id = $1, bid_count = 1 where id = $2", [bid.id, bid.lead_id]);
+    const { rows: priorLeads } = await pool.query("select * from leads order by id");
+    const { rows: [review] } = await pool.query(`insert into borynx_private.lead_reviews (lead_id, reviewer_id, recipient_id, rating, testimonial, visibility)
+      values ($1, $2, $3, 4, 'An existing review that should not change.', 'published') returning *`, [finished.id, buyer.id, winner.id]);
+    const { rows: [notice] } = await pool.query(`insert into notifications (user_id, actor_id, type, entity_type, entity_id, message, href)
+      values ($1, $2, 'lead_bid_accepted', 'lead', $3, 'A previous award notice', $4) returning *`, [winner.id, buyer.id, active.id, `/l/${active.id}/kickoff-upgrade-award#bid`]);
+    await pool.query(`do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
+      if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+    end $$;
+    alter default privileges in schema borynx_private grant all on tables to PUBLIC, anon, authenticated;`);
+    const expected = { applied: journal.entries.length, available: journal.entries.length };
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual((await pool.query("select * from leads order by id")).rows, priorLeads);
+    assert.deepEqual((await pool.query("select * from lead_bids order by id")).rows, bids);
+    assert.deepEqual((await pool.query("select * from borynx_private.lead_reviews")).rows, [review]);
+    assert.deepEqual((await pool.query("select * from notifications")).rows, [notice]);
+    assert.equal((await pool.query("select lead_id from borynx_private.lead_kickoffs")).rowCount, 0);
+    assert.deepEqual((await pool.query(`select relrowsecurity,
+      has_table_privilege('anon', oid, 'select,insert,update,delete,truncate,references,trigger') as anon_access,
+      has_table_privilege('authenticated', oid, 'select,insert,update,delete,truncate,references,trigger') as authenticated_access,
+      exists (select 1 from aclexplode(relacl) where grantee = 0) as public_access
+      from pg_class where oid = 'borynx_private.lead_kickoffs'::regclass`)).rows,
+    [{ relrowsecurity: true, anon_access: false, authenticated_access: false, public_access: false }]);
+  });
+  await withApp(url, "personas", (origin) => runAppTests(["src/lib/__tests__/lead-kickoff.integration.test.ts"], {
+    BORYNX_KICKOFF_TEST_ORIGIN: origin, BORYNX_KICKOFF_TEST_DATABASE_URL: url,
+  }));
+  console.log("PASS 0012 → 0013 preserves awards, completed reviews and notices without inventing kickoff details; app-only grants verified");
+}
+
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
   if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   if (process.argv.includes("--local-demo-only")) return checkDefaultDevSignIn(await createDatabase("app_db"));
   if (process.argv.includes("--profiles-only")) return checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
+  if (process.argv.includes("--kickoff-only")) {
+    await usingDatabase(await createDatabase("borynx_demo_kickoff_fresh"), async (pool) => {
+      assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
+      assert.equal((await pool.query("select lead_id from borynx_private.lead_kickoffs")).rowCount, 0);
+    });
+    return checkKickoffUpgrade(await createDatabase("borynx_demo_kickoff"), directory);
+  }
   if (process.argv.includes("--lead-reviews-only")) {
     await usingDatabase(await createDatabase("borynx_demo_lead_reviews_fresh"), async (pool) => {
       assert.deepEqual(await migrateDatabase(pool), { applied: journal.entries.length, available: journal.entries.length });
@@ -720,4 +775,5 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
   await checkPortfolioUpgrade(await createDatabase("borynx_demo_projects"), directory);
   await checkLeadDiscoveryUpgrade(await createDatabase("borynx_demo_lead_discovery"), directory);
   await checkLeadReviewUpgrade(await createDatabase("borynx_demo_lead_reviews"), directory);
+  await checkKickoffUpgrade(await createDatabase("borynx_demo_kickoff"), directory);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

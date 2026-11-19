@@ -1,6 +1,6 @@
 import { and, eq, exists, gt, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
-import { leadBids, leads, spaces, type Lead } from "@/db/schema";
+import { leadBids, leadKickoffs, leads, spaces, type Lead } from "@/db/schema";
 import { HttpError } from "./errors";
 import { getLeadEngagement } from "./lead-engagement";
 
@@ -33,6 +33,10 @@ export const openPublicLead = and(
 export const matchingLeadAward = and(eq(leads.awardNeedsReview, false),
   eq(leadBids.id, leads.acceptedBidId), eq(leadBids.leadId, leads.id), eq(leadBids.userId, leads.assignedUserId),
   ne(leadBids.userId, leads.authorId), eq(leadBids.isAccepted, true),
+)!;
+export const activeLeadAward = and(publicLead, eq(leads.status, "awarded"), isNull(leads.completedAt))!;
+export const matchingLeadKickoff = and(eq(leadKickoffs.leadId, leads.id), eq(leadKickoffs.bidId, leadBids.id),
+  eq(leadKickoffs.buyerId, leads.authorId), eq(leadKickoffs.winnerId, leadBids.userId),
 )!;
 export const explicitlyCompletedLead = and(eq(leads.status, "completed"), isNotNull(leads.completedAt))!;
 export const recordedLeadCompletion = and(explicitlyCompletedLead,

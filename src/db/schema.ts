@@ -4,6 +4,7 @@ import {
   index,
   check,
   customType,
+  date,
   integer,
   jsonb,
   pgEnum,
@@ -57,6 +58,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "user_follow",
   "lead_review_decision",
   "lead_bid_accepted",
+  "lead_kickoff",
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -490,6 +492,26 @@ export const leadBids = pgTable(
     uniqueIndex("lead_bids_one_winner_idx").on(t.leadId).where(sql`${t.isAccepted}`),
   ],
 );
+
+/** A private, one-time handoff bound to the exact award, not just the lead ID. */
+export const leadKickoffs = privateSchema.table("lead_kickoffs", {
+  leadId: integer("lead_id").primaryKey().references(() => leads.id, { onDelete: "cascade" }),
+  bidId: integer("bid_id").notNull().references(() => leadBids.id, { onDelete: "cascade" }),
+  buyerId: integer("buyer_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  winnerId: integer("winner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  note: text("note").notNull(),
+  contact: text("contact").notNull(),
+  startDate: date("start_date", { mode: "string" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+}, (t) => [
+  check("lead_kickoffs_distinct_participants", sql`${t.buyerId} <> ${t.winnerId}`),
+  check("lead_kickoffs_note_length", sql`length(trim(${t.note})) between 10 and 1000`),
+  check("lead_kickoffs_contact_length", sql`length(trim(${t.contact})) between 3 and 200`),
+  index("lead_kickoffs_bid_idx").on(t.bidId),
+  index("lead_kickoffs_buyer_idx").on(t.buyerId),
+  index("lead_kickoffs_winner_idx").on(t.winnerId),
+]).enableRLS();
 
 /** Migration evidence only; never served as active pitches. */
 export const leadBidArchive = pgTable("lead_bid_archive", {

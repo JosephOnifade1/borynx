@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, Bell, Briefcase, CheckCheck, MessageSquare, Trophy, UserPlus } from "lucide-react";
+import { Award, Bell, Briefcase, CheckCheck, Handshake, MessageSquare, Trophy, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/primitives";
@@ -19,6 +19,7 @@ const TYPE_ICONS = {
   solution_accepted: Award,
   lead_bid: Briefcase,
   lead_bid_accepted: Trophy,
+  lead_kickoff: Handshake,
   lead_review_decision: Briefcase,
   karma_milestone: Award,
   user_follow: UserPlus,
@@ -45,7 +46,7 @@ export function NotificationBell() {
     };
   }, [open]);
 
-  const { data } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: queryKeys.notifications(),
     queryFn: () => api<NotificationResponse>("/api/notifications?limit=10"),
     refetchInterval: 30_000,
@@ -66,7 +67,10 @@ export function NotificationBell() {
     <div className="relative" ref={containerRef}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) void refetch();
+          setOpen((o) => !o);
+        }}
         className="btn btn-ghost relative h-9 w-9 justify-center rounded-md p-0 text-ink-2 hover:text-ink hover:bg-bg-sunken transition-colors"
         aria-label={`Notifications (${unreadCount} unread)`}
         aria-haspopup="true"
@@ -83,7 +87,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="panel-raised absolute right-0 mt-1.5 w-80 sm:w-96 rounded-lg p-0 shadow-xl overflow-hidden z-50">
+        <div className="panel-raised fixed inset-x-3 top-[var(--header-h)] z-50 mt-1.5 overflow-hidden rounded-lg p-0 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:w-96">
           <header className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
             <span className="text-[13px] font-semibold text-ink">Notifications</span>
             {unreadCount > 0 && (
@@ -110,6 +114,7 @@ export function NotificationBell() {
                   <Link
                     key={n.id}
                     href={n.href}
+                    prefetch={n.type === "lead_kickoff" || n.type === "lead_bid_accepted" ? false : undefined}
                     onClick={() => setOpen(false)}
                     className={`flex items-start gap-3 p-3 transition-colors hover:bg-sunken ${
                       !n.isRead ? "bg-ember-soft/10" : ""

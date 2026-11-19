@@ -48,7 +48,7 @@ export const POST = handler(async (_req, { params }) => {
     await createNotification({
       userId: bid.userId, actorId: actor.id, type: "lead_bid_accepted", entityType: "lead", entityId: lead.id,
       message: `${actor.displayName} awarded you “${lead.title}”.`,
-      href: `${routes.lead(lead.id, lead.slug)}#bid`,
+      href: `${routes.lead(lead.id, lead.slug)}#kickoff`,
     }, tx);
     return awardResponse(bid.id, bid.userId, "awarded");
   });

@@ -4,6 +4,7 @@ import { comments, leads, modActions, posts, reports } from "@/db/schema";
 import { assertSameOrigin, handler, num, oneOf, privateJson, readJson } from "@/lib/api";
 import { canModerateSpace, HttpError, isSiteStaff, requireActor } from "@/lib/auth";
 import { publicLead } from "@/lib/lead-access";
+import { clearLeadKickoff } from "@/lib/lead-kickoff";
 import { isReviewParticipant, lockLeadReview, recordLeadReviewDecision } from "@/lib/lead-reviews";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,7 @@ export const PATCH = handler(async (req, { params }) => {
           authorId = r?.authorId ?? null;
         } else if (report.targetType === "lead") {
           const [r] = await tx.update(leads).set({ isRemoved: true }).where(eq(leads.id, report.targetId)).returning({ authorId: leads.authorId });
+          if (r) await clearLeadKickoff(tx, report.targetId);
           authorId = r?.authorId ?? null;
         }
         await tx.insert(modActions).values({ moderatorId: actor.id, targetUserId: authorId, action: "remove_content", reason });
