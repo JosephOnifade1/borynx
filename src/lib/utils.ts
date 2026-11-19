@@ -62,6 +62,7 @@ export const routes = {
   me: () => "/me",
   leads: () => "/l",
   leadNew: () => "/l/new",
+  leadServices: () => "/me/lead-services",
   lead: (id: number, slug: string) => `/l/${id}/${leadSlugSegment(slug)}`,
   leadSubmission: (id: number) => `/l/${id}`,
   modQueue: () => "/mod/queue",

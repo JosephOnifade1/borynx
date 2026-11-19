@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   // The provider adds a one-use PKCE exchange code to the callback query. Never log it.
   logging: { incomingRequests: { ignore: [/^\/api\/auth\/callback(?:\?|$)/] } },
   async headers() {
-    return ["/l/new", "/login", "/api/auth/callback"].map((source) => ({
+    return ["/l/new", "/login", "/me/lead-services", "/mod/queue", "/api/auth/callback"].map((source) => ({
       source,
       headers: [
         { key: "Referrer-Policy", value: "no-referrer" },

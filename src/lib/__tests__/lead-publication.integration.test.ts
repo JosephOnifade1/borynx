@@ -11,6 +11,7 @@ type Actor = { id: number; token: string };
 const variant = () => randomUUID().slice(0, 8);
 const brief = (title: string, overrides: Record<string, unknown> = {}) => ({
   title, description: "Deliver a reproducible accessibility audit for three checkout screens, including a ranked remediation list and example fixes.",
+  deliveryTimeline: "One week from kickoff",
   category: "Web & Mobile", kind: "contract", budgetMin: 1000, budgetMax: 2500,
   currency: "USD", budgetUnit: "fixed", skillTags: ["react", "accessibility"], submissionKey: randomUUID(), ...overrides,
 });
@@ -94,6 +95,10 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
     expect(retry).toEqual(submission);
     const { id, href } = submission;
     expect(submission).toMatchObject({ href: `/l/${id}`, publicationStatus: "pending_review", revision: 1 });
+    const another = await post("/api/leads", brief("A second valid brief for the same buyer"), buyer);
+    expect(another.status).toBe(409);
+    expect(await another.json()).toMatchObject({ code: "active_lead_limit" });
+    expect(await request("/l/new", { actor: buyer }).then((r) => r.text())).toContain("You already have an active lead");
     expect((await pool.query("select id from leads where author_id = $1 and submission_key = $2", [buyer.id, payload.submissionKey])).rowCount).toBe(1);
     expect((await request("/api/leads").then((r) => r.json())).total).toBe(before.total);
     for (const actor of [undefined, observer]) {
@@ -142,7 +147,11 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
     expect(notices.notifications).toEqual(expect.arrayContaining([expect.objectContaining({ type: "lead_review_decision", entityId: id, href, message: expect.stringContaining(reason) })]));
     expect((await request("/api/notifications", { actor: observer }).then((r) => r.text()))).not.toContain(reason);
 
-    const revised = brief(`${title} revised`, { spaceSlug, revision: 1 });
+    expect((await post("/api/leads", brief("A returned brief still occupies the active slot"), buyer)).status).toBe(409);
+    const revised = brief(`${title} revised`, { spaceSlug, revision: 1, deliveryTimeline: "Within five days of kickoff" });
+    for (const invalid of [{ deliveryTimeline: undefined }, { budgetMin: 0, budgetMax: 0 }]) {
+      expect((await patch(`/api/leads/${id}`, { ...revised, ...invalid }, buyer)).status).toBe(422);
+    }
     const correction = await patch(`/api/leads/${id}`, revised, buyer);
     expect(correction.status).toBe(200);
     expect(await correction.json()).toMatchObject({ id, publicationStatus: "pending_review", revision: 2 });
@@ -156,6 +165,7 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
     const publicPath = new URL(short.headers.get("location")!, origin).pathname;
     const publishedHtml = await request(publicPath).then((r) => r.text());
     expect(publishedHtml).toContain(revised.title);
+    expect(publishedHtml).toContain(revised.deliveryTimeline);
     expect(publishedHtml).not.toContain(reason);
     expect((await request("/api/leads").then((r) => r.json())).total).toBe(before.total + 1);
     const submissions = await request("/l/new", { actor: buyer }).then((r) => r.text());
@@ -172,6 +182,7 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
     await pool.query("update leads set deadline_at = now() - interval '1 minute' where id = $1", [id]);
     expect((await post(`/api/leads/${id}/bids`, pitch, bidderB)).status).toBe(409);
     expect(await request(publicPath).then((r) => r.text())).toContain("Deadline passed");
+    expect((await post("/api/leads", brief("An elapsed deadline doesn’t close the first lead"), buyer)).status).toBe(409);
     await pool.query("update leads set deadline_at = null where id = $1", [id]);
     expect((await patch(`/api/leads/${id}/status`, { action: "close_without_hire" }, buyer)).status).toBe(200);
     expect((await post(`/api/leads/${id}/bids`, pitch, bidderB)).status).toBe(409);
@@ -212,6 +223,8 @@ describe.skipIf(!enabled)("lead publication on disposable PostgreSQL", () => {
     expect(await request(`/api/search?q=${encodeURIComponent(title)}`).then((r) => r.text())).not.toContain(title);
     expect(await request(href, { actor: observer }).then((r) => r.text())).toContain(title);
     expect((await post(`/api/leads/${id}/bids`, pitch, bidderB)).status).toBe(404);
+    expect((await patch(`/api/leads/${id}/status`, { action: "close_without_hire" }, observer)).status).toBe(200);
+    await expectHidden(id, title, bidderB);
   });
 
   it("resolves only pending sibling reports of the same type and cannot publish a removed submission", async () => {

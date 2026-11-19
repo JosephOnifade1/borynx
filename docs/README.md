@@ -14,7 +14,7 @@ This directory contains architectural specifications, implementation blueprints,
 
 - [**Tier 2 Implementation**](./TIER_2_IMPLEMENTATION.md)
   - Interactive Lead Acceptance & Status Lifecycle (`POST /api/leads/[id]/bids/[bidId]/accept`)
-  - Reputation & Milestone Karma for Won Leads (+50 karma)
+  - Historical award karma (new awards no longer grant points)
   - Freelancer Profile Editor (`PATCH /api/me`) & Settings Hub (`/settings`)
   - Migration: `0003_silent_spacker_dave.sql`
 
@@ -37,7 +37,7 @@ This directory contains architectural specifications, implementation blueprints,
 - [Phase 5 lead discovery and saves](./MARKETPLACE_PHASE_5.md) — Shareable budget and skill filters, consistent paging, and private lead bookmarks.
 - [Phase 6 engagement reviews](./MARKETPLACE_PHASE_6.md) — One buyer review per public completed award, profile ratings, and site-wide moderation.
 - [Private award kickoff](./MARKETPLACE_KICKOFF.md) — Private buyer-to-winner handoff before completion.
-- [Monetization pilot](./MONETIZATION_PILOT.md) — Test an optional buyer-paid shortlist before building billing.
+- [Monetization pilot](./MONETIZATION_PILOT.md) — One active lead, review safeguards, and optional assisted shortlists and sponsored placement.
 - [Local database runbook](./LOCAL_DATABASE.md) — Phase 0 setup, migration checks, and demo sign-in safeguards.
 
 ---

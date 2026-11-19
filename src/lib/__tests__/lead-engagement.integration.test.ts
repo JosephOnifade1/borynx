@@ -64,6 +64,7 @@ describe.skipIf(!enabled)("lead engagement on disposable PostgreSQL", () => {
     const title = `Checkout workflow audit ${randomUUID().slice(0, 8)}`;
     const submission = await request("/api/leads", buyer, "POST", {
       title, description: "Review keyboard navigation in five checkout screens and deliver a prioritized report with example fixes and an annotated recording.",
+      deliveryTimeline: "Within two weeks of kickoff",
       category: "Web & Mobile", kind: "contract", budgetMin: 50, budgetMax: 120, currency: "EUR", budgetUnit: "hourly",
       skillTags: ["accessibility"], submissionKey: randomUUID(), deadlineAt: new Date(Date.now() + 15 * 60_000).toISOString(),
     });
@@ -157,7 +158,7 @@ describe.skipIf(!enabled)("lead engagement on disposable PostgreSQL", () => {
     const noticeCount = () => pool.query("select user_id from notifications where type = 'lead_bid_accepted' and entity_id = $1", [id]).then((r) => r.rows);
     const karmaEvents = () => pool.query("select user_id, amount from karma_events where reason = 'lead_bid_accepted' and user_id = any($1::int[])", [[bidderA.id, bidderB.id]]).then((r) => r.rows);
     expect(await noticeCount()).toEqual([{ user_id: winner.id }]);
-    expect(await karmaEvents()).toEqual([{ user_id: winner.id, amount: 50 }]);
+    expect(await karmaEvents()).toEqual([]);
     const winnerNotices = await request("/api/notifications", winner).then((r) => r.json());
     expect(winnerNotices.notifications).toEqual(expect.arrayContaining([expect.objectContaining({ type: "lead_bid_accepted", entityId: id })]));
     expect(await request("/api/notifications", loser).then((r) => r.text())).not.toContain(title);
@@ -171,10 +172,10 @@ describe.skipIf(!enabled)("lead engagement on disposable PostgreSQL", () => {
     expect((await outcome(id, "cancel", buyer)).status).toBe(409);
     expect((await outcome(id, "reopen", buyer)).status).toBe(422);
     expect(await noticeCount()).toEqual([{ user_id: winner.id }]);
-    expect(await karmaEvents()).toEqual([{ user_id: winner.id, amount: 50 }]);
+    expect(await karmaEvents()).toEqual([]);
     const publicPage = await html();
     expect(publicPage).toContain("Completed");
-    expect(publicPage).toContain("does not verify payment");
+    expect(publicPage).toContain("Buyer marked this lead complete. Borynx does not verify work or payment.");
     expect(publicPage).not.toContain("Winning pitch");
     expect(await boardItem()).toMatchObject({ status: "completed", engagement: "completed", acceptingBids: false });
     const active = await request("/api/leads?active=1&author=demo-buyer").then((r) => r.json());

@@ -1,6 +1,6 @@
 # Local database and demo sign-in
 
-Phase 0 established the setup and safety checks; this runbook covers the journal through private award kickoff (`0013`). The checks below use fictional rows in disposable PostgreSQL only.
+Phase 0 established the setup and safety checks; this runbook covers the journal through lead quality and the buyer pilot (`0014`). The checks below use fictional rows in disposable PostgreSQL only.
 
 ## Quick setup
 
@@ -49,6 +49,7 @@ A fresh database can have an empty ledger. A database with untracked tables/enum
 | `npm run test:db -- --lead-discovery-only` | Verifies fresh and `0010` → `0011` migrations, exact budget and skill paging, and private bookmarks on disposable data. |
 | `npm run test:db -- --lead-reviews-only` | Rehearses fresh and `0011` → `0012` migrations, then checks completed-award reviews, public totals, and moderation over HTTP. |
 | `npm run test:db -- --kickoff-only` | Rehearses fresh and `0012` → `0013` migrations and tests private handoff, grants, concurrency, and cleanup over HTTP. |
-| `npm run test:db` | Runs the local dev regression, five-persona, sample lead and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, `0007`, `0008`, `0009`, `0010`, `0011`, and `0012`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, lead-engagement, adaptive-profile, portfolio, lead-discovery, engagement-review, and private kickoff HTTP suites plus email staging with a local HTTPS provider double. |
+| `npm run test:db -- --buyer-pilot-only` | Rehearses `0013` → `0014` and checks opt-in manual buyer services and sponsored visibility with fictional verified sessions. |
+| `npm run test:db` | Runs the local dev regression, five-persona, sample lead and opt-out checks, and journal upgrades from `0002`, `0004`, `0005`, `0007`, `0008`, `0009`, `0010`, `0011`, `0012`, and `0013`. Verifies legacy award reconciliation, safe resume, and ledger validation. Also runs the thread-author, lead-publication, lead-engagement, adaptive-profile, portfolio, lead-discovery, engagement-review, private kickoff, and buyer-pilot HTTP suites plus email staging with a local HTTPS provider double. |
 
 `test:db` requires `openssl` for the throwaway TLS fixture and does not take a database URL or reuse an app server. Stop any existing Next.js dev process in this checkout first. The standard unit suite intentionally skips the HTTP integration cases; the database runner executes them against the fresh app. No Supabase project or staging credentials are needed.

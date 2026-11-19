@@ -9,7 +9,7 @@ import type { LeadAction } from "@/lib/lead-engagement";
 type Outcome = Exclude<LeadAction, "withdraw">;
 const OUTCOMES = {
   close_without_hire: { label: "Close without hire", confirm: "Confirm close", note: "No winner will be selected. This lead cannot be reopened." },
-  complete: { label: "Mark complete", confirm: "Confirm completion", note: "Record that the work is complete. This does not confirm payment." },
+  complete: { label: "Mark complete", confirm: "Confirm completion", note: "Mark this lead complete. This does not verify work or payment." },
   cancel: { label: "Cancel engagement", confirm: "Confirm cancellation", note: "Cancel the engagement without marking it complete. The original award stays on record, and bidding will not reopen." },
 } satisfies Record<Outcome, { label: string; confirm: string; note: string }>;
 

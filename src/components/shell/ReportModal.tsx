@@ -47,8 +47,8 @@ export function ReportModal() {
               <label key={r.id} className={cn("flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 transition-colors", reason === r.id ? "border-ember bg-ember-soft/40" : "border-line hover:border-line-strong")}>
                 <input type="radio" name="reason" value={r.id} checked={reason === r.id} onChange={() => setReason(r.id)} className="mt-1 accent-[var(--ember)]" />
                 <span>
-                  <span className="block text-[13px] font-semibold">{r.label}</span>
-                  <span className="block text-[12px] text-ink-3">{r.hint}</span>
+                  <span className="block text-[13px] font-semibold">{target?.type === "lead_review" && r.id === "spam_scam" ? "Fake or incentivized review" : r.label}</span>
+                  <span className="block text-[12px] text-ink-3">{target?.type === "lead_review" && r.id === "spam_scam" ? "The work may not have happened, or the review may have been traded or paid for." : r.hint}</span>
                 </span>
               </label>
             ))}

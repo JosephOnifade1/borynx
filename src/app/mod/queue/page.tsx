@@ -5,28 +5,30 @@ import { db } from "@/db";
 import { comments, leadReviews, leads, modActions, posts, reports, spaces, users, type ReportTarget } from "@/db/schema";
 import { LeadPublicationBadge } from "@/components/leads/LeadPublication";
 import { LeadReviewQueue } from "@/components/mod/LeadReviewQueue";
+import { LeadReviewSignals } from "@/components/mod/LeadReviewSignals";
 import { ReportDecision, UserDiscipline } from "@/components/mod/ModActions";
 import { ProjectModeration } from "@/components/portfolio/ProjectModeration";
 import { ReportedPostEvidence } from "@/components/mod/ReportedPostEvidence";
 import { PageFrame, PageHeader, Widget } from "@/components/PageFrame";
 import { Avatar } from "@/components/primitives";
-import { getCurrentUser, isSiteStaff, isSuspended } from "@/lib/auth";
-import { isReviewParticipant, listLeadReviewQueue } from "@/lib/lead-reviews";
+import { getCurrentUser, getSession, isSiteStaff, isSuspended } from "@/lib/auth";
+import { isReviewParticipant, listLeadReviewQueue, listLeadReviewSignals } from "@/lib/lead-reviews";
 import { REVIEW_VISIBILITY_LABELS } from "@/lib/lead-review-input";
 import { listHiddenProjectsForReview } from "@/lib/portfolio";
 import { REPORT_REASON_LABEL } from "@/lib/constants";
 import { routes, timeAgo } from "@/lib/utils";
 
-export const metadata = { title: "Moderation queue" };
+export const metadata = { title: "Moderation queue", robots: { index: false, follow: false } };
 
 export default async function ModQueuePage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect(`${routes.login()}?next=${routes.modQueue()}`);
   if (!isSiteStaff(user) || isSuspended(user)) redirect("/");
+  const showPilotOperations = user.role === "admin" && (await getSession())?.kind === "email";
   const { status: statusParam } = await searchParams;
   const status = statusParam === "approved" || statusParam === "dismissed" ? statusParam : "pending";
 
-  const [rows, counts, restricted, recentActions, submissions, hiddenProjects, pendingReviews, hiddenReviews] = await Promise.all([
+  const [rows, counts, restricted, recentActions, submissions, hiddenProjects, pendingReviews, hiddenReviews, reviewSignals] = await Promise.all([
     db
       .select({ report: reports, reporter: { username: users.username }, space: { slug: spaces.slug } })
       .from(reports)
@@ -45,6 +47,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
     listHiddenProjectsForReview(user.id),
     listLeadReviewQueue("pending_review"),
     listLeadReviewQueue("hidden"),
+    listLeadReviewSignals(),
   ]);
 
   const ids = (t: ReportTarget) => rows.filter((r) => r.report.targetType === t).map((r) => r.report.targetId);
@@ -68,7 +71,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
 
   return (
     <PageFrame wide
-      header={<PageHeader eyebrow="Moderation · site-wide" title="Moderation queue" description="Review submissions before publication. Reports are separate: approving a report removes content, and dismissing one does not publish it." />}
+      header={<PageHeader eyebrow="Moderation · site-wide" title="Moderation queue" description="Review submissions before publication. Reports are separate: approving a report removes content, and dismissing one does not publish it." actions={showPilotOperations && <Link href={routes.leadServices()} className="btn" prefetch={false}>Pilot operations</Link>} />}
       aside={
         <>
           <Widget title="Restricted accounts">
@@ -114,7 +117,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
         <div className="mb-3">
           <p className="eyebrow text-ember">Publication</p>
           <h2 id="lead-submissions-heading" className="display mt-1 text-[18px]">Lead submissions</h2>
-          <p className="mt-1 text-[13px] text-ink-3">Private briefs awaiting review appear first. Open a brief to review its current revision.</p>
+          <p className="mt-1 text-[13px] text-ink-3">Private briefs awaiting review appear first. Check the current scope, budget, and delivery timeline before publishing. Paid services cannot skip review.</p>
         </div>
         {submissions.length === 0 ? <p className="rounded-md border border-dashed border-line p-3 text-[13px] text-ink-3">No submissions yet.</p> : (
           <ul className="divide-y divide-line rounded-md border border-line">
@@ -148,6 +151,7 @@ export default async function ModQueuePage({ searchParams }: { searchParams: Pro
         ) : <p className="mt-3 text-[13px] text-ink-3">No hidden projects to review.</p>}
       </section>
       <LeadReviewQueue pending={pendingReviews} hidden={hiddenReviews} moderatorId={user.id} />
+      <LeadReviewSignals matches={reviewSignals} />
       <h2 className="display px-4 pt-4 text-[17px] sm:px-6">Reports</h2>
       <div className="hairline-b flex items-center gap-1 px-4 py-2.5">
         {(["pending", "approved", "dismissed"] as const).map((s) => (

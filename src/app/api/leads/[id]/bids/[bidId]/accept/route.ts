@@ -6,8 +6,6 @@ import { HttpError, requireActor } from "@/lib/auth";
 import { lockLead, parseLeadId, publicLead } from "@/lib/lead-access";
 import { canSelectBid, matchesLeadAward } from "@/lib/lead-engagement";
 import { createNotification } from "@/lib/notifications";
-import { karmaForLeadWon } from "@/lib/karma";
-import { applyKarma, evaluateBadges } from "@/lib/services";
 import { routes } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -43,8 +41,7 @@ export const POST = handler(async (_req, { params }) => {
     await tx.update(leadBids).set({ isAccepted: true }).where(eq(leadBids.id, bid.id));
     await tx.update(leads).set({ acceptedBidId: bid.id, assignedUserId: bid.userId, status: "awarded", awardedAt: new Date() })
       .where(eq(leads.id, leadId));
-    await applyKarma(tx, bid.userId, karmaForLeadWon());
-    await evaluateBadges(bid.userId, tx);
+    // Selecting a pitch is not independent evidence of work. It awards no reputation.
     await createNotification({
       userId: bid.userId, actorId: actor.id, type: "lead_bid_accepted", entityType: "lead", entityId: lead.id,
       message: `${actor.displayName} awarded you “${lead.title}”.`,

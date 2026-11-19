@@ -2,7 +2,7 @@
 
 This is a development workflow, not a live signup or publishing rollout. Run `npm ci` and `npm run dev:demo`; the demo command ignores existing database credentials and uses disposable PostgreSQL. Use fictional briefs only. Anyone with access to the demo can choose the reviewer persona.
 
-1. As a signed-out guest, open `/l/new` and fill in a brief, budget and at least one skill. **Continue to sign in** keeps the draft in the same browser tab; no lead is written yet. Choose **Demo Buyer**, return to the form, then **Submit for review**. The brief is private and listed under **Your submissions** on `/l/new`.
+1. As a signed-out guest, open `/l/new` and fill in a brief with a clear deliverable, positive budget, delivery timeline, and at least one skill. **Continue to sign in** keeps the draft in the same browser tab; no lead is written yet. Choose **Demo Buyer**, return to the form, then **Submit for review**. The brief is private and listed under **Your submissions** on `/l/new`.
 2. In a separate browser session, choose **Demo Reviewer** and open `/mod/queue`. **Lead submissions** is separate from **Reports**. Choose **Review brief**, then publish, request changes, or reject. Changes and rejection require a note to the buyer. A site reviewer cannot review their own lead; a space moderator cannot publish it.
 3. If changes are requested, return to the buyer session, open the private brief, and **Resubmit for review**. Reviewers must open the new revision before deciding. The author can withdraw a brief that is pending or awaiting corrections. Dismissing a report never publishes the brief.
 4. Once published, confirm the lead appears on `/l`, the author's active leads and search. Try bidding as either **Demo Bidder**. Pitches require a public, open listing with a deadline that hasn't passed. Continue with the [Phase 2 award and completion walkthrough](./MARKETPLACE_PHASE_2.md).
@@ -17,7 +17,7 @@ Minimums apply only to new paid **contracts**, not bounties, jobs, or historical
 | EUR | 50 | 20 |
 | GBP | 40 | 16 |
 
-Drafts remain on the device until the signed-in submit. A retry with the same author and draft key returns the same row. A pending lead has no public canonical redirect, title in metadata, board counts, profile entry, sharing controls, or new bid/vote actions. Decision notices are private to the buyer. Report removal is independent of publication and affects only pending reports for the same target type and ID.
+Drafts remain on the device until the signed-in submit. A retry with the same author and draft key returns the same row. One active lead is allowed per buyer; briefs under review or correction and published unawarded open leads count. See the [buyer-quality rules](./MONETIZATION_PILOT.md#quality-and-reputation-are-not-for-sale). A pending lead has no public canonical redirect, title in metadata, board counts, profile entry, sharing controls, or new bid/vote actions. Decision notices are private to the buyer. Report removal is independent of publication and affects only pending reports for the same target type and ID.
 
 ## Database and rollout
 

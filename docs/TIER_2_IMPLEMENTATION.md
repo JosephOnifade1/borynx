@@ -7,6 +7,8 @@
 
 ---
 
+> This is a historical implementation note. [Current marketplace rules](./MONETIZATION_PILOT.md#quality-and-reputation-are-not-for-sale) no longer grant karma for a new award.
+
 ## 🎯 Scope & Objectives
 Tier 2 focuses on completing the client-to-freelancer commercial transaction loop and enabling deep profile personalization. Practitioners and clients on Borynx can now negotiate, award contracts, and manage their identity across the network.
 

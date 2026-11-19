@@ -49,6 +49,7 @@ function expectCounts(markup: string, published: number, accepting: number, comp
 async function submitLead(title: string, actor: Actor) {
   const response = await post("/api/leads", {
     title, description: "Inspect keyboard navigation in three checkout screens and deliver a prioritized report with annotated examples and fixes.",
+    deliveryTimeline: "Deliver within two weeks",
     kind: "contract", category: "Web & Mobile", currency: "USD", budgetMin: 200, budgetMax: 400, budgetUnit: "fixed",
     skillTags: ["accessibility"], submissionKey: randomUUID(), deadlineAt: new Date(Date.now() + 3_600_000).toISOString(),
   }, actor);

@@ -54,7 +54,7 @@ const submit = (id: number, actor: Actor | undefined, rating = 5, testimonial = 
 const decide = (id: number, actor: Actor, action: string, reason = "Reviewed the content and award evidence.") => send(`/api/mod/lead-reviews/${id}`, actor, "PATCH", { action, reason });
 const reportReview = (id: number, actor: Actor, details = "") => send("/api/reports", actor, "POST", { targetType: "lead_review", targetId: id, reason: "off_topic", details });
 const decideReport = (id: number, actor: Actor, action: string) => send(`/api/mod/reports/${id}`, actor, "PATCH", { action });
-const empty = { items: [], count: 0, averageRating: null, nextCursor: null };
+const empty = { items: [], count: 0, buyerCount: 0, averageRating: null, nextCursor: null };
 
 // Run only from the disposable Phase 6 runner; fixture cleanup deliberately writes directly to that DB.
 describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL", () => {
@@ -105,19 +105,72 @@ describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL"
     return { ...lead, bidId: bid.id };
   }
 
-  async function checkProfile(count: number, average: number | null, ...suppressedText: string[]) {
+  async function checkProfile(count: number, buyerCount: number, average: number | null, ...suppressedText: string[]) {
     const [json, html] = await Promise.all([read<PublicLeadReviewsPage>(send(apiPath(winner.username))), markup(profilePath(winner.username))]);
     expect(json.count).toBe(count);
+    expect(json.buyerCount).toBe(buyerCount);
     expect(json.averageRating).toBe(average);
     const region = html.match(/<section id="profile-reviews"[^>]*>([\s\S]*?)<\/section>/)?.[1];
     expect(region).toContain(`<span class="num">${count}</span> ${count === 1 ? "review" : "reviews"}`);
-    if (average !== null) expect(region).toContain(`${average.toFixed(1)} / 5`);
+    expect(region).toContain(`<span class="num">${buyerCount}</span> ${buyerCount === 1 ? "buyer account" : "buyer accounts"}`);
+    if (average === null) expect(region).not.toContain('text-[20px] font-semibold');
+    else expect(region).toContain(`${average.toFixed(1)} / 5`);
     for (const text of suppressedText) {
       expect(region).not.toContain(text);
       expect(JSON.stringify(json)).not.toContain(text);
     }
     return { json, region };
   }
+
+  it("suggests patterns only to site staff without holding reviews or making moderation decisions", async () => {
+    const original = "They documented the full checkout flow and shared a prioritized accessibility report with clear steps to verify each fix.";
+    const first = await completed();
+    const second = await completed({ authorId: otherBidder.id });
+    const reverse = await completed({ authorId: winner.id }, buyer.id);
+    const privateLead = await completed({ spaceId: privateSpace });
+    const removed = await completed({ removed: true });
+    const inconsistent = await completed();
+    const dated = await completed();
+    const sampled = [first.id, second.id, reverse.id, privateLead.id, removed.id, inconsistent.id];
+    await pool.query("update leads set awarded_at=now()-interval '1 hour' where id=any($1::int[])", [sampled]);
+    await pool.query("update leads set award_needs_review=true where id=$1", [inconsistent.id]);
+    await pool.query("update leads set awarded_at=now()-interval '120 days', completed_at=now()-interval '120 days'+interval '1 hour' where id=$1", [dated.id]);
+    const [a, b] = await Promise.all([
+      read<ReviewResult>(submit(first.id, buyer, 5, original), 201),
+      read<ReviewResult>(submit(second.id, otherBidder, 4, original.replace("full checkout", "whole checkout")), 201),
+    ]);
+    expect(a.visibility).toBe("published");
+    expect(b.visibility).toBe("published");
+    const regionFrom = (html: string) => html.match(/<section aria-labelledby="engagement-signals-heading"[^>]*>([\s\S]*?)<\/section>/)?.[1];
+    const queue = await markup("/mod/queue", moderator);
+    const region = regionFrom(queue);
+    expect(region).toContain("Advisory only, not evidence of misconduct");
+    expect(region).toContain("Buyer marked complete within 24 hours of award");
+    expect(region).toContain("Reciprocal award with");
+    expect(region).toMatch(new RegExp(`Similar testimonial to review #(${a.id}|${b.id})`));
+    for (const id of [first.id, second.id, reverse.id]) expect(region).toContain(`Lead #${id}<`);
+    for (const id of [privateLead.id, removed.id, inconsistent.id, dated.id]) expect(region).not.toContain(`Lead #${id}<`);
+    expect(region).not.toContain(original);
+    expect(region).not.toContain(pitchMessage);
+    for (const actor of [undefined, buyer, observer]) {
+      const response = await send("/mod/queue", actor);
+      expect(response.status).toBe(307);
+      expect(await response.text()).not.toContain("engagement-signals-heading");
+    }
+    await pool.query("update users set is_banned = true where id=$1", [moderator.id]);
+    expect((await send("/mod/queue", moderator)).status).toBe(307);
+    const { json, region: publicRegion } = await checkProfile(2, 2, null);
+    expect(json.items.map((item) => item.id).sort()).toEqual([a.id, b.id].sort());
+    expect(json).not.toHaveProperty("signals");
+    expect(publicRegion).not.toContain("Similar testimonial");
+    expect((await pool.query("select id from reports where target_type = 'lead_review' and target_id=any($1::int[])", [[a.id, b.id]])).rowCount).toBe(0);
+    expect((await pool.query("select id from borynx_private.lead_review_decisions where review_id=any($1::int[])", [[a.id, b.id]])).rowCount).toBe(0);
+    await pool.query("update users set is_banned = false where id=$1", [moderator.id]);
+    await pool.query("update leads set is_removed = true where id=$1", [first.id]);
+    const updated = regionFrom(await markup("/mod/queue", moderator));
+    expect(updated).not.toContain("Similar testimonial");
+    expect(updated).not.toContain("Reciprocal award with");
+  });
 
   it("shows the form only after an actual buyer completes a matching award, and inserts exactly one review under concurrency", async () => {
     const lead = await fixture();
@@ -157,9 +210,9 @@ describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL"
       { id: result.id, reviewer_id: buyer.id, recipient_id: winner.id, rating: 4, testimonial: publishedText },
     ]);
     expect((await pool.query("select karma from users where id = any($1::int[]) order by id", [[winner.id, buyer.id]])).rows).toEqual(karmaBefore);
-    const { json, region } = await checkProfile(1, 4, pitchMessage, scope, "8301", "Private reviewer company marker", leadPath(lead));
+    const { json, region } = await checkProfile(1, 1, null, pitchMessage, scope, "8301", "Private reviewer company marker", leadPath(lead));
     expect(json.items).toEqual([{ id: result.id, rating: 4, testimonial: publishedText, createdAt: expect.any(String), reviewer: { username: buyer.username, displayName: "Demo Buyer" } }]);
-    expect(region).toContain("From a completed Borynx lead");
+    expect(region).toContain("Buyer marked this lead complete");
     expect(region).toContain("&lt;em&gt;specific&lt;/em&gt;");
     expect(region).not.toContain("<em>specific</em>");
     expect(await markup(leadPath(lead), buyer)).toContain("Review published on");
@@ -206,7 +259,7 @@ describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL"
     expect((await pool.query("select visibility from borynx_private.lead_reviews where id = $1", [id])).rows).toEqual([{ visibility: "pending_review" }]);
     expect((await pool.query("select id from borynx_private.lead_reviews where lead_id = $1", [blocked.id])).rowCount).toBe(0);
     expect(await markup(leadPath(pending), buyer)).toContain("It won’t appear on the winner’s profile until a moderator publishes it.");
-    await checkProfile(1, 5, heldText);
+    await checkProfile(1, 1, null, heldText);
     for (const actor of [buyer, winner, moderator]) expect(await markup(profilePath(winner.username), actor)).not.toContain(heldText);
     const staffPage = await markup("/mod/queue", moderator);
     expect(staffPage).toContain(heldText);
@@ -232,16 +285,16 @@ describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL"
     expect(await read(decide(id, moderator, "publish"), 403)).toMatchObject({ code: "restricted" });
     await pool.query("update users set is_banned = false where id = $1", [moderator.id]);
     expect(await read(decideReport(auto.id, moderator, "dismiss"))).toEqual({ ok: true, status: "dismissed" });
-    await checkProfile(1, 5, heldText);
+    await checkProfile(1, 1, null, heldText);
     expect(await read(decide(id, moderator, "publish", "Accept after reading the context."))).toEqual({ id, visibility: "published" });
-    expect((await checkProfile(2, 3, "Accept after reading the context.")).region).toContain(heldText);
+    expect((await checkProfile(2, 1, null, "Accept after reading the context.")).region).toContain(heldText);
     expect(await read(decide(id, moderator, "hide", "Hide this review pending staff follow-up."))).toEqual({ id, visibility: "hidden" });
     expect(await markup(leadPath(pending), buyer)).toContain("Your review is hidden");
-    await checkProfile(1, 5, heldText, "Hide this review pending staff follow-up.");
+    await checkProfile(1, 1, null, heldText, "Hide this review pending staff follow-up.");
     expect(await read(submit(pending.id, buyer, 4, heldText), 409)).toMatchObject({ code: "review_exists" });
     expect(await read(reportReview(id, observer), 404)).toMatchObject({ code: "not_found" });
     expect(await read(decide(id, moderator, "restore", "Restore after additional review."))).toEqual({ id, visibility: "published" });
-    await checkProfile(2, 3, "Restore after additional review.");
+    await checkProfile(2, 1, null, "Restore after additional review.");
     expect((await pool.query("select action, moderator_id, reason from borynx_private.lead_review_decisions where review_id = $1 order by id", [id])).rows).toEqual([
       { action: "publish", moderator_id: moderator.id, reason: "Accept after reading the context." },
       { action: "hide", moderator_id: moderator.id, reason: "Hide this review pending staff follow-up." },
@@ -270,21 +323,21 @@ describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL"
     expect((await pool.query("select action, reason from borynx_private.lead_review_decisions where review_id = $1", [id])).rows).toEqual([
       { action: "hide", reason: `Report #${reportId}: off_topic` },
     ]);
-    await checkProfile(0, null, testimonial);
+    await checkProfile(0, 0, null, testimonial);
     await read(decide(id, moderator, "restore"));
-    await checkProfile(1, 4);
+    await checkProfile(1, 1, null);
     await pool.query("update leads set space_id = $1 where id = $2", [privateSpace, lead.id]);
-    await checkProfile(0, null, testimonial);
+    await checkProfile(0, 0, null, testimonial);
     expect(await read(reportReview(id, moderator), 404)).toMatchObject({ code: "not_found" });
     await pool.query("update leads set space_id = $1 where id = $2", [space, lead.id]);
     await pool.query("update lead_bids set is_accepted = false where id = $1", [lead.bidId]);
-    await checkProfile(0, null, testimonial);
+    await checkProfile(0, 0, null, testimonial);
     await pool.query("update lead_bids set is_accepted = true where id = $1", [lead.bidId]);
     const leadReport = await read<{ id: number }>(send("/api/reports", observer, "POST", { targetType: "lead", targetId: lead.id, reason: "off_topic" }), 201);
     await read(decideReport(leadReport.id, moderator, "approve"));
     expect((await pool.query("select is_removed from leads where id = $1", [lead.id])).rows).toEqual([{ is_removed: true }]);
     expect((await pool.query("select visibility from borynx_private.lead_reviews where id = $1", [id])).rows).toEqual([{ visibility: "published" }]);
-    await checkProfile(0, null, testimonial);
+    await checkProfile(0, 0, null, testimonial);
     expect(await read(reportReview(id, buyer), 404)).toMatchObject({ code: "not_found" });
     await read(decide(id, moderator, "hide"));
     expect(await read(decide(id, moderator, "restore"), 409)).toMatchObject({ code: "review_ineligible" });
@@ -303,7 +356,28 @@ describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL"
     const { id: reportId } = await read<{ id: number }>(reportReview(id, observer), 201);
     expect(await read(decideReport(reportId, moderator, "approve"), 403)).toMatchObject({ code: "forbidden" });
     expect(await markup(profilePath(winner.username), moderator)).not.toContain("Hide review");
-    await checkProfile(1, 5);
+    await checkProfile(1, 1, null);
+  });
+
+  it("weights only the latest eligible review from each buyer and waits for three distinct accounts", async () => {
+    const leadA = await completed();
+    const repeat = await completed();
+    const leadB = await completed({ authorId: observer.id });
+    const leadC = await completed({ authorId: otherBidder.id });
+    const old = await read<ReviewResult>(submit(leadA.id, buyer, 4), 201);
+    const latest = await read<ReviewResult>(submit(repeat.id, buyer, 1), 201);
+    // Make identical timestamps intentional; the higher review ID is the newer review in this tie.
+    await pool.query("update borynx_private.lead_reviews set created_at = '2025-04-01T10:12:00.000010Z' where id in ($1,$2)", [old.id, latest.id]);
+    await read(submit(leadB.id, observer, 2), 201);
+    await checkProfile(3, 2, null);
+    expect(await read(submit(leadC.id, otherBidder, 3), 201)).toMatchObject({ visibility: "published" });
+    const { json } = await checkProfile(4, 3, 2);
+    expect(json.items.map((item) => item.id)).toContain(old.id);
+    expect(json.items.map((item) => item.id)).toContain(latest.id);
+    await read(decide(latest.id, moderator, "hide"));
+    await checkProfile(3, 3, 3); // The same buyer now contributes their older eligible 4, not two votes.
+    await pool.query("update leads set is_removed = true where id = $1", [leadC.id]);
+    await checkProfile(2, 2, null);
   });
 
   it("uses exact keyset paging with unchanged aggregate totals and keeps alias navigation on Reviews", async () => {
@@ -330,7 +404,7 @@ describe.skipIf(!enabled)("verified engagement reviews on disposable PostgreSQL"
     const query = `&cursor=${encodeURIComponent(first.nextCursor!)}`;
     const second = await read<PublicLeadReviewsPage>(send(`${apiPath(winner.username)}?${query.slice(1)}`));
     expect(second.items.map((r) => r.id)).toEqual([ties[0].id, older.id]);
-    expect(second).toMatchObject({ count: 13, averageRating: 4, nextCursor: null });
+    expect(second).toMatchObject({ count: 13, buyerCount: 1, averageRating: null, nextCursor: null });
     const secondHtml = await markup(`${profilePath(winner.username)}${query}`);
     expect(secondHtml).toContain(older.testimonial);
     expect(secondHtml).not.toContain(newer.testimonial);

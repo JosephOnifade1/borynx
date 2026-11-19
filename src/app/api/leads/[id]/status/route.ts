@@ -22,7 +22,7 @@ export const PATCH = handler(async (req, { params }) => {
 
   return db.transaction(async (tx) => {
     const lead = await lockLead(tx, leadId, or(publicLead, and(
-      eq(leads.authorId, actor.id), eq(leads.isRemoved, false), ne(leads.publicationStatus, "published"),
+      eq(leads.authorId, actor.id), eq(leads.isRemoved, false), action === "close_without_hire" ? undefined : ne(leads.publicationStatus, "published"),
     )));
     if (lead.authorId !== actor.id) throw new HttpError(403, "Only the lead author can change its outcome", "forbidden");
     const published = lead.publicationStatus === "published";

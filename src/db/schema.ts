@@ -21,6 +21,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import type { LeadFields } from "@/lib/lead-input";
+import type { LeadServiceKind, LeadServiceState } from "@/lib/lead-service-input";
 
 export const privateSchema = pgSchema("borynx_private");
 
@@ -341,6 +342,7 @@ export const leads = pgTable(
     slug: varchar("slug", { length: 96 }).notNull(),
     title: varchar("title", { length: 180 }).notNull(),
     description: text("description").notNull(),
+    deliveryTimeline: varchar("delivery_timeline", { length: 160 }), // Not inferred for historical leads.
     category: varchar("category", { length: 48 }).notNull(),
     kind: leadKindEnum("kind").default("contract").notNull(),
     budgetMin: integer("budget_min").default(0).notNull(),
@@ -386,6 +388,34 @@ export const leads = pgTable(
     check("leads_revision_positive", sql`${t.revision} >= 1`),
   ],
 );
+
+/** Manual service orders are private and do not change the marketplace lead or its award. */
+export const leadServiceOrders = privateSchema.table("lead_service_orders", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  buyerId: integer("buyer_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contactIdentityId: integer("contact_identity_id").references(() => authIdentities.id, { onDelete: "set null" }),
+  kind: varchar("kind", { length: 16 }).$type<LeadServiceKind>().notNull(),
+  state: varchar("state", { length: 12 }).$type<LeadServiceState>().default("requested").notNull(),
+  amountMinor: integer("amount_minor").notNull(), // NGN kobo, snapshotted when requested.
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  sponsorUntil: timestamp("sponsor_until", { withTimezone: true }),
+  handledById: integer("handled_by_id").references(() => users.id, { onDelete: "set null" }),
+}, (t) => [
+  uniqueIndex("lead_service_orders_lead_kind_idx").on(t.leadId, t.kind),
+  index("lead_service_orders_buyer_recent_idx").on(t.buyerId, t.createdAt, t.id),
+  index("lead_service_orders_sponsor_idx").on(t.sponsorUntil).where(sql`${t.kind} = 'sponsored_lead' and ${t.state} = 'confirmed'`),
+  check("lead_service_orders_kind", sql`${t.kind} in ('assisted_hire', 'sponsored_lead')`),
+  check("lead_service_orders_state", sql`${t.state} in ('requested', 'confirmed', 'delivered', 'declined', 'refunded')`),
+  check("lead_service_orders_amount", sql`${t.amountMinor} > 0 and ${t.amountMinor} % 100 = 0`),
+  check("lead_service_orders_confirmation", sql`(${t.confirmedAt} is not null) = (${t.state} in ('confirmed', 'delivered', 'refunded'))`),
+  check("lead_service_orders_placement_window", sql`
+    (${t.sponsorUntil} is not null) = (${t.kind} = 'sponsored_lead' and ${t.confirmedAt} is not null)
+    and (${t.sponsorUntil} is null or ${t.sponsorUntil} > ${t.confirmedAt})`),
+  check("lead_service_orders_delivery", sql`${t.state} <> 'delivered' or ${t.kind} = 'assisted_hire'`),
+]).enableRLS();
 
 /** Personal bookmarks are app-only; thread saves stay in their existing table. */
 export const leadSaves = privateSchema.table("lead_saves", {

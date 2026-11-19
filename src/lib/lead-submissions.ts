@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { leads, spaces, type Lead } from "@/db/schema";
 import { HttpError } from "./errors";
+import { activeLeadSubmission } from "./lead-access";
 import { parseLeadFields, type LeadFields } from "./lead-input";
 import { assertRateLimit, fileAutoReport, screenContent } from "./services";
 import { routes, slugify } from "./utils";
@@ -25,16 +26,25 @@ export const submissionColumns = { id: leads.id, revision: leads.revision, publi
 const LEAD_SUBMISSION_LOCK = 4_242_003;
 
 export function screenLead(fields: LeadFields) {
-  return screenContent(`${fields.title}\n${fields.description}\n${fields.location}`);
+  return screenContent(`${fields.title}\n${fields.description}\n${fields.deliveryTimeline}\n${fields.location}`);
 }
 
-/** One writer for both direct and verified-intake submissions, including the same author's rate limit. */
+export async function findActiveLead(authorId: number, tx: LeadTransaction | typeof db = db) {
+  const [active] = await tx.select({ id: leads.id, title: leads.title }).from(leads)
+    .where(and(eq(leads.authorId, authorId), activeLeadSubmission)).orderBy(leads.id).limit(1);
+  return active;
+}
+
+/** One writer for both direct and verified-intake submissions, including the same author's rate limit. Use READ COMMITTED so reads after the lock see the last submission. */
 export async function submitPendingLead(tx: LeadTransaction, authorId: number, submissionKey: string, input: unknown) {
   await tx.execute(sql`select pg_advisory_xact_lock(${LEAD_SUBMISSION_LOCK}::integer, ${authorId}::integer)`);
   const [existing] = await tx.select(submissionColumns).from(leads)
     .where(and(eq(leads.authorId, authorId), eq(leads.submissionKey, submissionKey))).limit(1);
   if (existing) return { lead: existing, status: 200 };
   const fields = parseLeadFields(input);
+  if (await findActiveLead(authorId, tx)) {
+    throw new HttpError(409, "You already have an active lead. Close, withdraw, or award it before submitting another.", "active_lead_limit");
+  }
   await assertRateLimit(authorId, "lead", tx);
   const verdict = screenLead(fields);
   const values = await leadWriteValues(tx, fields);

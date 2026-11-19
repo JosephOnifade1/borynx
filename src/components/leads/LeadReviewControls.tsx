@@ -27,7 +27,7 @@ export function LeadReviewControls({ leadId, revision, canPublish }: { leadId: n
         <div>
           <p className="eyebrow text-ember">Site review · revision {revision}</p>
           <h2 className="display mt-1 text-[17px]">Decide whether to publish</h2>
-          <p className="mt-1 text-[13px] text-ink-3">Publishing makes this brief public. A reason is required to request changes or decline it.</p>
+          <p className="mt-1 text-[13px] text-ink-3">Confirm the brief has a concrete deliverable, a positive budget, and a delivery timeline. Publishing makes it public. A reason is required to request changes or reject it.</p>
         </div>
         {!canPublish && <p className="text-[13px] text-danger">The linked space is not public. Request a correction instead of publishing.</p>}
         <label htmlFor={id} className="eyebrow block">Note to the author</label>

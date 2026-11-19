@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -208,12 +208,12 @@ function startNpmDev(url: string, port: number, demoOff: boolean) {
   }, false, true);
 }
 
-async function withApp<T>(url: string, demo: DemoAccountMode | "npm-default" | "npm-disabled", run: (origin: string) => Promise<T>, ready = true) {
+async function withApp<T>(url: string, demo: DemoAccountMode | "npm-default" | "npm-disabled", run: (origin: string) => Promise<T>, ready = true, overrides: Record<string, string> = {}) {
   const port = await freeLoopbackPort();
   const origin = `http://${LOOPBACK}:${port}`;
   const app = demo === "npm-default" || demo === "npm-disabled"
     ? startNpmDev(url, port, demo === "npm-disabled")
-    : startLocalNext(url, demo, ["--hostname", LOOPBACK, "--port", String(port)]);
+    : startLocalNext(url, demo, ["--hostname", LOOPBACK, "--port", String(port)], false, { BORYNX_ASSISTED_HIRE: "0", BORYNX_SPONSORED_LEADS: "0", ...overrides });
   try {
     const deadline = Date.now() + 60_000;
     while (!app.logs.includes("Ready in")) {
@@ -369,6 +369,7 @@ async function checkRestoredDemoApp(url: string) {
     const cookie = { Cookie: `bx_session=${token}` };
     const draft = await jsonPost(`${origin}/api/leads`, {
       title: "Restored account checkout audit", description: "Check keyboard focus order and write a prioritized list of fixes for the checkout flow.", category: "Web & Mobile",
+      deliveryTimeline: "Deliver within five working days",
       kind: "contract", currency: "USD", budgetUnit: "fixed", budgetMin: 80, budgetMax: 120, skillTags: ["accessibility"], submissionKey: randomUUID(),
     }, cookie);
     assert.equal(draft.status, 201);
@@ -632,7 +633,7 @@ async function checkLeadReviewUpgrade(url: string, directory: string) {
     const expected = { applied: journal.entries.length, available: journal.entries.length };
     assert.deepEqual(await migrateDatabase(pool), expected);
     assert.deepEqual(await migrateDatabase(pool), expected);
-    assert.deepEqual((await pool.query("select * from leads where id = $1", [lead.id])).rows, [completed]);
+    assert.deepEqual((await pool.query("select * from leads where id = $1", [lead.id])).rows, [{ ...completed, delivery_timeline: null }]);
     assert.deepEqual((await pool.query("select * from lead_bids where id = $1", [bid.id])).rows, [bid]);
     assert.deepEqual((await pool.query("select * from reports where id = $1", [legacyReport.id])).rows, [legacyReport]);
     assert.deepEqual((await pool.query("select user_id, lead_id from borynx_private.lead_saves")).rows, [{ user_id: moderator.id, lead_id: lead.id }]);
@@ -713,7 +714,7 @@ async function checkKickoffUpgrade(url: string, directory: string) {
     const expected = { applied: journal.entries.length, available: journal.entries.length };
     assert.deepEqual(await migrateDatabase(pool), expected);
     assert.deepEqual(await migrateDatabase(pool), expected);
-    assert.deepEqual((await pool.query("select * from leads order by id")).rows, priorLeads);
+    assert.deepEqual((await pool.query("select * from leads order by id")).rows, priorLeads.map((lead) => ({ ...lead, delivery_timeline: null })));
     assert.deepEqual((await pool.query("select * from lead_bids order by id")).rows, bids);
     assert.deepEqual((await pool.query("select * from borynx_private.lead_reviews")).rows, [review]);
     assert.deepEqual((await pool.query("select * from notifications")).rows, [notice]);
@@ -731,8 +732,57 @@ async function checkKickoffUpgrade(url: string, directory: string) {
   console.log("PASS 0012 → 0013 preserves awards, completed reviews and notices without inventing kickoff details; app-only grants verified");
 }
 
+async function checkBuyerPilotUpgrade(url: string, directory: string) {
+  const prior = await copyJournalPrefix(directory, "buyer-pilot-migrations", 14);
+  await usingDatabase(url, async (pool) => {
+    assert.deepEqual(await migrateDatabase(pool, prior.folder), { applied: prior.count, available: prior.count });
+    const { rows: [user] } = await pool.query("insert into users (username,display_name,karma) values ('pilot-legacy-buyer','Pilot Legacy Buyer',50) returning id");
+    await pool.query("insert into karma_events (user_id,base,multiplier_x100,amount,reason) values ($1,50,100,50,'lead_bid_accepted')", [user.id]);
+    const { rows: [legacy] } = await pool.query("insert into leads (author_id,slug,title,description,category,publication_status) values ($1,'pilot-legacy','Unchanged buyer lead','Scope from the previous version','Web & Mobile','published') returning *", [user.id]);
+    await pool.query(`do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
+      if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+    end $$;
+    alter default privileges in schema borynx_private grant all on tables to PUBLIC, anon, authenticated;
+    alter default privileges in schema borynx_private grant all on sequences to PUBLIC, anon, authenticated;`);
+    const expected = { applied: journal.entries.length, available: journal.entries.length };
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual(await migrateDatabase(pool), expected);
+    assert.deepEqual((await pool.query("select * from leads where id=$1", [legacy.id])).rows, [{ ...legacy, delivery_timeline: null }]);
+    assert.deepEqual((await pool.query("select karma from users where id=$1", [user.id])).rows, [{ karma: 50 }]);
+    assert.equal((await pool.query("select amount from karma_events where user_id=$1", [user.id])).rows[0].amount, 50);
+    assert.equal((await pool.query("select id from borynx_private.lead_service_orders")).rowCount, 0);
+    assert.deepEqual((await pool.query(`select relrowsecurity,
+      has_table_privilege('anon', oid, 'select,insert,update,delete,truncate,references,trigger') as anon_access,
+      has_table_privilege('authenticated', oid, 'select,insert,update,delete,truncate,references,trigger') as authenticated_access,
+      exists (select 1 from aclexplode(relacl) where grantee=0) as public_access
+      from pg_class where oid='borynx_private.lead_service_orders'::regclass`)).rows,
+    [{ relrowsecurity: true, anon_access: false, authenticated_access: false, public_access: false }]);
+    assert.deepEqual((await pool.query(`select
+      has_sequence_privilege('anon', oid, 'usage,select,update') as anon_access,
+      has_sequence_privilege('authenticated', oid, 'usage,select,update') as authenticated_access,
+      exists (select 1 from aclexplode(relacl) where grantee=0) as public_access
+      from pg_class where oid='borynx_private.lead_service_orders_id_seq'::regclass`)).rows,
+    [{ anon_access: false, authenticated_access: false, public_access: false }]);
+  });
+  const verifiedSettings = {
+    BORYNX_EMAIL_AUTH: "staging",
+    BORYNX_AUTH_ORIGIN: "https://buyer-pilot.example.test",
+    BORYNX_SUPABASE_URL: "https://auth.buyer-pilot.example.test",
+    BORYNX_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_fixture_buyer_pilot",
+    BORYNX_EMAIL_AUTH_SECRET: randomBytes(32).toString("base64url"),
+  };
+  for (const flag of ["1", "0"]) {
+    await withApp(url, "disabled", (origin) => runAppTests(["src/lib/__tests__/lead-services.integration.test.ts"], {
+      BORYNX_PILOT_TEST_WIRE: origin, BORYNX_PILOT_TEST_DATABASE_URL: url, BORYNX_PILOT_TEST_ENABLED: flag,
+    }), true, { ...verifiedSettings, BORYNX_ASSISTED_HIRE: flag, BORYNX_SPONSORED_LEADS: flag, BORYNX_SPONSORED_LEAD_PRICE_NGN: "5000" });
+  }
+  console.log("PASS 0013 → 0014 preserves existing leads and karma, adds app-only service orders, and verifies the pilot with flags both on and off");
+}
+
 for (const key of Object.keys(process.env)) if (key.startsWith("PG")) delete process.env[key];
 withLocalPostgres(async ({ createDatabase, directory }) => {
+  if (process.argv.includes("--buyer-pilot-only")) return checkBuyerPilotUpgrade(await createDatabase("borynx_demo_buyer_pilot"), directory);
   if (process.argv.includes("--email-only")) return checkPhaseTwoEmailUpgrade(await createDatabase("borynx_email_staging"), directory);
   if (process.argv.includes("--local-demo-only")) return checkDefaultDevSignIn(await createDatabase("app_db"));
   if (process.argv.includes("--profiles-only")) return checkPhaseThreeProfileUpgrade(await createDatabase("borynx_demo_profiles"), directory);
@@ -787,4 +837,5 @@ withLocalPostgres(async ({ createDatabase, directory }) => {
   await checkLeadDiscoveryUpgrade(await createDatabase("borynx_demo_lead_discovery"), directory);
   await checkLeadReviewUpgrade(await createDatabase("borynx_demo_lead_reviews"), directory);
   await checkKickoffUpgrade(await createDatabase("borynx_demo_kickoff"), directory);
+  await checkBuyerPilotUpgrade(await createDatabase("borynx_demo_buyer_pilot"), directory);
 }).catch((error) => { console.error(error); process.exitCode = 1; });

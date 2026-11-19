@@ -11,7 +11,7 @@ import { safeStorage, useHydrated } from "@/lib/browser";
 import { api, ClientError, queryKeys } from "@/lib/client";
 import { LEAD_CATEGORIES, LEAD_KIND_LABEL } from "@/lib/constants";
 import { HttpError } from "@/lib/errors";
-import { CONTRACT_FLOORS, LEAD_BUDGET_UNITS, LEAD_CURRENCIES, LEAD_KINDS, LEAD_SKILLS, MAX_LEAD_BUDGET, MAX_LEAD_SKILLS, parseLeadFields, parseSubmissionKey, type LeadFields, type LeadInput } from "@/lib/lead-input";
+import { CONTRACT_FLOORS, LEAD_BUDGET_UNITS, LEAD_CURRENCIES, LEAD_KINDS, LEAD_SKILLS, MAX_LEAD_BUDGET, MAX_LEAD_SKILLS, MAX_LEAD_TIMELINE, parseLeadFields, parseSubmissionKey, type LeadFields, type LeadInput } from "@/lib/lead-input";
 import { LEAD_DRAFT_KEY } from "@/lib/lead-draft";
 import { routes } from "@/lib/utils";
 
@@ -21,7 +21,7 @@ type DraftFields = Omit<LeadFields, "kind" | "category" | "currency" | "budgetUn
 type Draft = { fields: DraftFields; key: string; intakeStarted?: boolean };
 export type LeadRevision = { id: number; revision: number; enforceFloor: boolean; fields: DraftFields };
 const EMPTY: DraftFields = {
-  title: "", description: "", category: LEAD_CATEGORIES[0], kind: "contract", budgetMin: "", budgetMax: "", currency: "USD",
+  title: "", description: "", deliveryTimeline: "", category: LEAD_CATEGORIES[0], kind: "contract", budgetMin: "", budgetMax: "", currency: "USD",
   budgetUnit: "fixed", skillTags: [], deadlineAt: "", location: "Remote", spaceSlug: "",
 };
 const subscribe = () => () => undefined;
@@ -170,8 +170,12 @@ export function LeadComposer({ spaces, demoMode = false, emailIntake = false, co
           {fieldNote("title")}
         </label>
         <label className="block"><span className="eyebrow">Brief · Markdown</span>
-          <textarea {...attributes("description")} value={fields.description} onChange={(e) => set("description", e.target.value)} rows={8} className="field mt-1.5 font-mono text-[13px]" placeholder="Describe a specific deliverable, what you will provide, and what a successful result should look like." minLength={60} maxLength={20_000} required />
+          <textarea {...attributes("description")} value={fields.description} onChange={(e) => set("description", e.target.value)} rows={8} className="field mt-1.5 font-mono text-[13px]" placeholder="Describe the deliverable, what you will provide, and how you will judge it complete." minLength={60} maxLength={20_000} required />
           {fieldNote("description")}
+        </label>
+        <label className="block"><span className="eyebrow">Delivery timeline</span>
+          <input {...attributes("deliveryTimeline")} value={fields.deliveryTimeline} onChange={(e) => set("deliveryTimeline", e.target.value)} className="field mt-1.5" placeholder="e.g. Within two weeks of kickoff" minLength={3} maxLength={MAX_LEAD_TIMELINE} required />
+          {fieldNote("deliveryTimeline")}
         </label>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <label className="block"><span className="eyebrow">Budget unit</span>
@@ -188,7 +192,7 @@ export function LeadComposer({ spaces, demoMode = false, emailIntake = false, co
             <input {...attributes("budgetMin")} type="number" min={floor} max={MAX_LEAD_BUDGET} step={1} value={fields.budgetMin} onChange={(e) => set("budgetMin", e.target.value)} className="field num mt-1.5" required />{fieldNote("budgetMin")}
           </label>
           <label className="block"><span className="eyebrow">Budget max</span>
-            <input {...attributes("budgetMax")} type="number" min={floor} max={MAX_LEAD_BUDGET} step={1} value={fields.budgetMax} onChange={(e) => set("budgetMax", e.target.value)} className="field num mt-1.5" required />{fieldNote("budgetMax")}
+            <input {...attributes("budgetMax")} type="number" min={Math.max(1, floor)} max={MAX_LEAD_BUDGET} step={1} value={fields.budgetMax} onChange={(e) => set("budgetMax", e.target.value)} className="field num mt-1.5" required />{fieldNote("budgetMax")}
           </label>
         </div>
         {floor > 0 && <p className="text-[12px] text-ink-3">Minimum for this contract: {fields.currency} {floor}{fields.budgetUnit === "hourly" ? " per hour" : " fixed"}.</p>}

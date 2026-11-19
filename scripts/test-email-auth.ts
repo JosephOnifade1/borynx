@@ -19,6 +19,7 @@ const sample = (overrides = {}) => ({
   title: "Build a private pilot analytics dashboard",
   description: "We need a single dashboard with accessibility checks, documented filters, and an export option for our engineers.",
   kind: "contract", category: "Software Engineering", location: "Remote", budgetMin: 700, budgetMax: 900,
+  deliveryTimeline: "Two weeks after kickoff",
   budgetUnit: "fixed", currency: "GBP", skillTags: ["typescript", "accessibility"], submissionKey: randomUUID(),
   ...overrides,
 });
@@ -150,6 +151,7 @@ async function runEmailStaging(pool: Pool, url: string, directory: string) {
       email: "  Buyer@EXAMPLE.test  ", displayName: "Staging Test Buyer", companyName: "Private Pilot Company",
     };
     assert.equal((await submitIntake({ ...body, displayName: "X" })).status, 422);
+    assert.equal((await submitIntake({ ...body, lead: { ...body.lead, deliveryTimeline: undefined } })).status, 422);
     assert.equal((await submitIntake({ ...body, lead: { ...body.lead, budgetMin: 10 } })).status, 422);
     assert.equal((await submitIntake({ ...body, lead: { ...body.lead, description: "For guaranteed income, wire transfer upfront. You must pay the processing fee to receive your fictional assignment." } })).status, 422);
     assert.equal((await submitIntake({ ...body, lead: { ...body.lead, spaceSlug: "nonexistent" } })).status, 422);
@@ -321,13 +323,50 @@ async function runEmailStaging(pool: Pool, url: string, directory: string) {
     assert.equal((await signIn(buyer, 7)).status, 429); // third send was accepted, fourth blocked across IPs
     assert.deepEqual(provider.attempts.filter((address) => address === buyer).length, 3);
 
+    const blockedIntake = await confirm(returningId, returningSession);
+    assert.equal(blockedIntake.status, 409);
+    assert.equal((await blockedIntake.json()).code, "active_lead_limit");
+    assert.equal(await count("select count(*)::int as n from borynx_private.lead_intakes where id=$1 and brief is not null and consumed_at is null", [returningId]), 1);
+
     await pool.query("update borynx_private.lead_intakes set created_at = now() - interval '25 hours', expires_at = now() - interval '1 hour' where id = $1", [returningId]);
     assert.equal((await confirm(returningId, returningSession)).status, 410);
     assert.equal((await confirm(returningId, observerSession)).status, 404);
     assert.match(await load(`/l/new?intake=${returningId}`, returningSession).then((r) => r.text()), /Unsubmitted drafts expire after 24 hours/);
     assert.doesNotMatch(await load(`/l/new?intake=${returningId}`, returningSession).then((r) => r.text()), /Unsubmitted returning draft should expire/);
-    assert.equal((await post("/api/leads", sample(), returningSession)).status, 201);
+    const activeLimit = await post("/api/leads", sample(), returningSession);
+    assert.equal(activeLimit.status, 409);
+    assert.equal((await activeLimit.json()).code, "active_lead_limit");
+    const closeLead = (id: number, action: string) => request(`/api/leads/${id}/status`, {
+      method: "PATCH", body: JSON.stringify({ action }), headers: { Cookie: returningSession, Origin: ORIGIN, "Content-Type": "application/json" },
+    });
+    assert.equal((await closeLead(committed.id, "close_without_hire")).status, 200);
+    const nextLead = await post("/api/leads", sample(), returningSession);
+    assert.equal(nextLead.status, 201);
+    assert.equal((await closeLead((await nextLead.json()).id, "withdraw")).status, 200);
     assert.equal((await post("/api/leads", sample(), returningSession)).status, 429);
+
+    const raceEmail = email("quota-race");
+    const intakeBrief = sample({ title: "Check concurrency when confirming a saved brief" });
+    const directBrief = sample({ title: "Check concurrency from the signed-in lead form" });
+    const raceFlow = await assertAccepted(await submitIntake({ lead: intakeBrief, email: raceEmail, displayName: "Quota Race Buyer" }, 31));
+    const raceAuth = await callback(provider.latest(raceEmail).code, raceFlow);
+    const raceIntakeId = assertRedirect(raceAuth).searchParams.get("intake")!;
+    const raceSession = assertSession(raceAuth);
+    const userId = (await me(raceSession)).user.id;
+    const [intakeWrite, directWrite] = await Promise.all([confirm(raceIntakeId, raceSession), post("/api/leads", directBrief, raceSession)]);
+    assert.deepEqual([intakeWrite.status, directWrite.status].sort(), [201, 409]);
+    const confirmedFirst = intakeWrite.status === 201;
+    const [success, denied] = confirmedFirst ? [intakeWrite, directWrite] : [directWrite, intakeWrite];
+    const savedLead = await success.json();
+    assert.equal(savedLead.publicationStatus, "pending_review");
+    assert.equal((await denied.json()).code, "active_lead_limit");
+    assert.equal(await count("select count(*)::int as n from leads where author_id=$1", [userId]), 1);
+    const repeat = await post("/api/leads", confirmedFirst ? intakeBrief : directBrief, raceSession);
+    assert.equal(repeat.status, 200);
+    assert.deepEqual(await repeat.json(), savedLead);
+    const boundDraft = (await pool.query("select lead_id, brief is null as scrubbed, consumed_at is not null as consumed from borynx_private.lead_intakes where id=$1", [raceIntakeId])).rows[0];
+    assert.deepEqual(boundDraft, { lead_id: confirmedFirst ? savedLead.id : null, scrubbed: confirmedFirst, consumed: confirmedFirst });
+    console.log("PASS direct submission and a different verified intake share one active slot, preserving retries and the losing draft");
 
     // Provider failure keeps the draft and reservation. A later retry cannot replace its payload.
     const failedEmail = email("failed");

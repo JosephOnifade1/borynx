@@ -11,7 +11,7 @@ Borynx is built specifically for tech freelancers (Engineering, Design, DevOps, 
 
 ### Key Capabilities
 - **Vertical Communities (`/b`):** Focused working rooms for specialized disciplines with custom rules, brand hues, and access policies.
-- **Leads Marketplace (`/l`):** Find contracts, bounties, and roles with budget and skill filters, and save leads privately. Manage pitches and awards, then share [private kickoff details](./docs/MARKETPLACE_KICKOFF.md) with the winner. See the [discovery walkthrough](./docs/MARKETPLACE_PHASE_5.md).
+- **Leads Marketplace (`/l`):** Find contracts, bounties, and roles with budget and skill filters, and save leads privately. Manage pitches and awards, then share [private kickoff details](./docs/MARKETPLACE_KICKOFF.md) with the winner. See the [discovery walkthrough](./docs/MARKETPLACE_PHASE_5.md) and [optional buyer services](./docs/MONETIZATION_PILOT.md).
 - **Practitioner Leaderboard (`/leaderboard`):** Community ranking based on earned karma, accepted solutions, and peer follows.
 - **Notification Engine (`/notifications`):** In-app real-time notifications for replies, solution acceptance, lead bids, and new followers.
 - **Adaptive Profiles (`/f/:username`):** Show hiring activity, freelance availability and rates, and up to six curated [portfolio projects](./docs/MARKETPLACE_PHASE_4_PROJECTS.md).
@@ -90,6 +90,7 @@ Detailed architectural specs, schema changes, and migration logs for all develop
 | `npm run test:db -- --lead-discovery-only` | Verify lead filtering, pagination, private saves, and the Phase 5 upgrade |
 | `npm run test:db -- --lead-reviews-only` | Verify completed-award reviews, moderation, and the Phase 6 upgrade |
 | `npm run test:db -- --kickoff-only` | Verify private post-award kickoff, participant access, and the `0012` → `0013` upgrade |
+| `npm run test:db -- --buyer-pilot-only` | Verify the one-lead limit, optional paid services, and the `0013` → `0014` upgrade on disposable data |
 | `npx drizzle-kit generate` | Generate SQL migration from schema |
 | `npm run db:migrate` | Verify the Drizzle ledger and apply pending migrations to the explicitly configured database |
 | `npm run db:prune-email` | Scrub expired intake content and prune receipts, send reservations and sessions on the explicitly configured database |

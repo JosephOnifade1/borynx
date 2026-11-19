@@ -26,17 +26,8 @@ export type KarmaReason =
   | "lead_upvote"
   | "solution_accepted"
   | "solution_revoked"
-  | "lead_bid_accepted"
+  | "lead_bid_accepted" // Historical entries only.
   | "moderation_penalty";
-
-export function karmaForLeadWon(): KarmaComputation {
-  return {
-    base: 50,
-    multiplier: 1,
-    amount: 50,
-    reason: "lead_bid_accepted",
-  };
-}
 
 export interface KarmaComputation {
   base: number;

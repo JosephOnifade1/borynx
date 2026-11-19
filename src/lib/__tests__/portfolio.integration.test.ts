@@ -266,6 +266,7 @@ describe.skipIf(!enabled)("portfolio projects on disposable PostgreSQL", () => {
   it("links to a bidder’s public projects only in the poster’s private pitch review", async () => {
     const response = await post("/api/leads", {
       title: "Portfolio review lead fixture", description: "We need a checkout accessibility review with a prioritized set of fixes and documented testing steps.",
+      deliveryTimeline: "Deliver within five business days",
       kind: "contract", category: "Web & Mobile", budgetMin: 200, budgetMax: 400, budgetUnit: "fixed", currency: "USD",
       skillTags: ["accessibility"], submissionKey: randomUUID(),
     }, visitor);
