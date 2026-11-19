@@ -123,6 +123,34 @@ describe.skipIf(!enabled)("lead discovery and saves on disposable PostgreSQL", (
     expect(html).not.toMatch(/Pending Discovery Canary|Removed Discovery Canary|Private Discovery Canary/);
   });
 
+  it("opens leads with imported slugs from the board and keeps unavailable leads private", async () => {
+    const lead = await fixture("Imported Lead Link", { skills: ["kubernetes"] });
+    const pending = await fixture("Private Imported Link", { skills: ["kubernetes"], publication: "pending_review" });
+    await pool.query("update leads set slug = $1 where id in ($2, $3)", ["../UI/UX café?plan#kickoff", lead.id, pending.id]);
+    const path = `/l/${lead.id}/ui-ux-cafe-plan-kickoff`;
+    const query = "skill=kubernetes";
+    const page = await board(query);
+    expect(ids(page)).toEqual([lead.id]);
+    expect(page.items[0].href).toBe(path);
+    const html = await markup(`/l?${query}`);
+    expect(html).toContain(`href="${path}"`);
+    expect(html).toContain(`href="${path}#bid"`);
+    expect(html).not.toContain(pending.title);
+    expect(await markup(page.items[0].href)).toMatch(new RegExp(`<h1[^>]*>${lead.title}</h1>`));
+
+    const search = "ref_id=12&share_id=abc123&tag=first&tag=second";
+    for (const oldPath of [`/l/${lead.id}`, `/l/${lead.id}/UI/UX%20caf%C3%A9`]) {
+      const response = await send(`${oldPath}?${search}`);
+      expect(response.status).toBe(308);
+      expect(response.headers.get("location")).toBe(`${path}?${search}`);
+    }
+    const hidden = await send(`/l/${pending.id}/old-slug`, { actor: visitor });
+    expect(hidden.status).toBe(404);
+    expect(hidden.headers.get("location")).toBeNull();
+    expect(await hidden.text()).not.toContain(pending.title);
+    expect(await markup(`/l/${pending.id}`, poster)).toContain(pending.title);
+  });
+
   it("paginates the exact New results past 400 and keeps Hot visibly separate", async () => {
     const query = "skill=go&currency=USD&unit=fixed&min=100&limit=50";
     let page = await board(query);

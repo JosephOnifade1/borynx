@@ -4,7 +4,7 @@ Profiles can share up to six work samples alongside their existing community, hi
 
 ## Try it locally
 
-> Use fictional data in a dedicated loopback database only. This branch inherits the demo sign-in isolation regression on `main` (`65fc188`). Do not expose a dev server through a proxy or advance a hosted rollout until that regression is fixed.
+> Use fictional data in a dedicated loopback database. Do not proxy a dev server that uses existing local accounts.
 
 1. Sign in to a local test account. Open **Settings → Manage projects → New project**, enter a title, description, and 1–8 technology tags, and **Save draft**. An optional role/outcome and HTTPS links give readers context; a public repo is not required.
 2. Edit the draft to upload or replace an optional cover. Choose one still PNG, JPEG, or WebP (up to 3 MiB, 4096 × 4096 and 12 megapixels). Add a short description for informative images; empty alt text is for decoration. Covers save separately from project details.
@@ -27,4 +27,4 @@ npx vitest run src/lib/__tests__/portfolio-input.test.ts src/lib/__tests__/portf
 npm run typecheck && npm run lint && npm run build
 ```
 
-The project suite covers draft and cover access across guest, member, owner, and site staff; concurrent creates and full-list ordering; media limits and metadata removal; publication, deletion and moderation; and the Projects link in private pitch review. See the [local database runbook](./LOCAL_DATABASE.md) for the baseline demo regression and safety caveat.
+The project suite covers draft and cover access across guest, member, owner, and site staff; concurrent creates and full-list ordering; media limits and metadata removal; publication, deletion and moderation; and the Projects link in private pitch review. See the [local database runbook](./LOCAL_DATABASE.md) for demo setup and sign-in boundaries.

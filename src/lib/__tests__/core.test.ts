@@ -4,7 +4,7 @@ import { hotScore, rankItems, wilsonLowerBound, topScore } from "../sorting";
 import { tokenizeInline, parseBlocks, extractUserMentions, extractSpaceMentions } from "../autolink";
 import { karmaForPostVote, karmaForSolution, karmaForCommentVote, multiplierToPercent } from "../karma";
 import { evaluateContent } from "../safety";
-import { buildShareUrl, slugify } from "../utils";
+import { buildShareUrl, routes, slugify } from "../utils";
 
 const HOUR = 3_600_000;
 const now = Date.parse("2026-03-01T12:00:00Z");
@@ -150,6 +150,28 @@ describe("safety + share", () => {
     expect(url.searchParams.get("ref_id")).toBe("7");
     expect(url.searchParams.get("share_id")).toBe("abc123");
     expect(slugify("Hello, Wörld! ")).toBe("hello-world");
+  });
+});
+
+describe("lead permalinks", () => {
+  it.each([
+    ["current-slug", "current-slug"],
+    ["Older_Lead", "Older_Lead"],
+    ["../other-lead", "other-lead"],
+    ["UI/UX café?scope#pitch", "ui-ux-cafe-scope-pitch"],
+    ["budget%2Fchange", "budget-2fchange"],
+    ["busy\n", "busy"],
+    ["..", "untitled"],
+    ["", "untitled"],
+  ])("keeps the ID and a single safe path segment for %j", (slug, segment) => {
+    const origin = "https://borynx.example";
+    const path = routes.lead(42, slug);
+    expect(path).toBe(`/l/42/${segment}`);
+    const url = new URL(`${path}#bid`, origin);
+    expect(url.origin).toBe(origin);
+    expect(url.pathname).toBe(path);
+    expect(url.search).toBe("");
+    expect(url.hash).toBe("#bid");
   });
 });
 

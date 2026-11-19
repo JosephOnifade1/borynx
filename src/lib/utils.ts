@@ -41,6 +41,11 @@ export function formatBudget(min: number, max: number, currency: string, unit?: 
 
 /* ---------------- Canonical routes ---------------- */
 
+/** Restored leads may have slugs that were never safe as a single URL segment. */
+export function leadSlugSegment(slug: string): string {
+  return slug && !/[^a-z0-9_-]/i.test(slug) ? slug : slugify(slug);
+}
+
 export const routes = {
   home: () => "/",
   spaces: () => "/b",
@@ -57,7 +62,7 @@ export const routes = {
   me: () => "/me",
   leads: () => "/l",
   leadNew: () => "/l/new",
-  lead: (id: number, slug: string) => `/l/${id}/${slug}`,
+  lead: (id: number, slug: string) => `/l/${id}/${leadSlugSegment(slug)}`,
   leadSubmission: (id: number) => `/l/${id}`,
   modQueue: () => "/mod/queue",
   leaderboard: () => "/leaderboard",
