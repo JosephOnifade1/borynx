@@ -29,6 +29,14 @@ reverted** by PR merges or automated agents:
 > **Never** replace these with the stricter upstream version that calls
 > `isLocalAccountDatabaseUrl()` or checks the `Host` header for loopback.
 
+### `scripts/dev-launch.ts`
+> Contains a Neon override in `planDevLaunch`: when `BORYNX_DEMO_EXISTING_ACCOUNTS=1`,
+> the loopback `DATABASE_URL` check is skipped (line ~38). The condition must remain:
+> ```ts
+> if (!isLocalAccountDatabaseUrl(url) && !existingDemoAccountsRequested(env)) {
+> ```
+> Do **not** revert to the simpler `if (!isLocalAccountDatabaseUrl(url)) {` form.
+
 ### `.env.local`
 > Contains `BORYNX_DEMO_MODE=1` and `BORYNX_DEMO_EXISTING_ACCOUNTS=1`.
 > Never delete or override these env vars.
