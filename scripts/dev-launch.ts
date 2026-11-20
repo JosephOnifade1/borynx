@@ -1,4 +1,4 @@
-import { DEFAULT_LOCAL_DATABASE_URL, isLocalAccountDatabaseUrl, isLoopbackHostname } from "../src/lib/demo-mode";
+import { DEFAULT_LOCAL_DATABASE_URL, existingDemoAccountsRequested, isLocalAccountDatabaseUrl, isLoopbackHostname } from "../src/lib/demo-mode";
 import { LOOPBACK } from "./local-postgres";
 
 type DevLaunch = { args: string[] } & ({ mode: "personas" } | { mode: "existing" | "disabled"; url: string });
@@ -35,7 +35,7 @@ export function planDevLaunch(args: string[], env: Readonly<Record<string, strin
   if (!isLoopbackHostname(hostname)) {
     throw new Error("Existing demo sign-in is loopback-only. Run npm run dev without a hostname, or use npm run dev:demo for a disposable preview.");
   }
-  if (!isLocalAccountDatabaseUrl(url)) {
+  if (!isLocalAccountDatabaseUrl(url) && !existingDemoAccountsRequested(env)) {
     throw new Error("Existing demo sign-in requires a loopback DATABASE_URL for your local PostgreSQL test database, without URL options. Use npm run dev:demo for a disposable demo, or set BORYNX_DEMO_MODE=0 to disable demo sign-in.");
   }
   return { mode: "existing", url, args: launchArgs };
